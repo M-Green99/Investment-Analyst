@@ -4,7 +4,6 @@
 # =========================================================
 
 import yfinance as yf
-from portfolio import portfolio
 from datetime import date, datetime
 from colorama import init, Fore, Style
 
@@ -2738,7 +2737,7 @@ def print_stock_report(item):
 # MAIN REPORT
 # =========================================================
 
-def generate_report():
+def generate_report(portfolio):
 
     print()
 
