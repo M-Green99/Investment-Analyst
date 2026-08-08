@@ -1,7 +1,10 @@
-```python
+# =========================================================
 # main.py
+# INVESTMENT ANALYST REPORT
+# =========================================================
 
 import yfinance as yf
+from portfolio import portfolio
 from datetime import date, datetime
 from colorama import init, Fore, Style
 
@@ -21,7 +24,97 @@ BOLD = Style.BRIGHT
 
 
 # =========================================================
-# GENERAL HELPERS
+# COLOUR HELPERS
+# =========================================================
+
+def colour_text(text, colour):
+    return f"{colour}{text}{Fore.RESET}"
+
+
+def colour_score(score):
+    if score >= 70:
+        colour = GREEN
+    elif score >= 55:
+        colour = AMBER
+    else:
+        colour = RED
+
+    return f"{colour}{score}/100{Fore.RESET}"
+
+
+def colour_sentiment(sentiment):
+    if sentiment == "POSITIVE":
+        return f"{GREEN}{sentiment}{Fore.RESET}"
+    elif sentiment == "NEGATIVE":
+        return f"{RED}{sentiment}{Fore.RESET}"
+
+    return f"{AMBER}{sentiment}{Fore.RESET}"
+
+
+def colour_risk(risk):
+    if risk in ["VERY HIGH", "HIGH"]:
+        return f"{RED}{risk}{Fore.RESET}"
+    elif risk == "MODERATE":
+        return f"{AMBER}{risk}{Fore.RESET}"
+
+    return f"{GREEN}{risk}{Fore.RESET}"
+
+
+def colour_valuation(valuation):
+    if valuation == "ATTRACTIVE":
+        return f"{GREEN}{valuation}{Fore.RESET}"
+    elif valuation == "EXPENSIVE":
+        return f"{RED}{valuation}{Fore.RESET}"
+
+    return f"{AMBER}{valuation}{Fore.RESET}"
+
+
+def colour_quality(quality):
+    if quality in ["EXCELLENT", "STRONG"]:
+        return f"{GREEN}{quality}{Fore.RESET}"
+    elif quality in ["WEAK", "POOR"]:
+        return f"{RED}{quality}{Fore.RESET}"
+
+    return f"{AMBER}{quality}{Fore.RESET}"
+
+
+def colour_catalyst(catalyst):
+    if catalyst == "STRONG":
+        return f"{GREEN}{catalyst}{Fore.RESET}"
+    elif catalyst == "WEAK":
+        return f"{RED}{catalyst}{Fore.RESET}"
+
+    return f"{AMBER}{catalyst}{Fore.RESET}"
+
+
+def colour_action(action):
+    if action == "BUY":
+        return f"{GREEN}{BOLD}{action}{Fore.RESET}"
+    elif action == "SELL":
+        return f"{RED}{BOLD}{action}{Fore.RESET}"
+
+    return f"{AMBER}{BOLD}{action}{Fore.RESET}"
+
+
+def colour_number(value, good_threshold=None, bad_threshold=None):
+    if value is None:
+        return "N/A"
+
+    try:
+        if good_threshold is not None and value >= good_threshold:
+            return f"{GREEN}{value:.1f}%{Fore.RESET}"
+
+        if bad_threshold is not None and value <= bad_threshold:
+            return f"{RED}{value:.1f}%{Fore.RESET}"
+
+    except Exception:
+        pass
+
+    return f"{AMBER}{value:.1f}%{Fore.RESET}"
+
+
+# =========================================================
+# SAFE VALUE HELPERS
 # =========================================================
 
 def safe_float(value):
@@ -42,15 +135,6 @@ def format_number(value, decimals=2):
     return f"{value:,.{decimals}f}"
 
 
-def format_percentage(value, decimals=1):
-    value = safe_float(value)
-
-    if value is None:
-        return "N/A"
-
-    return f"{value:.{decimals}f}%"
-
-
 def format_large_number(value):
     value = safe_float(value)
 
@@ -68,88 +152,25 @@ def format_large_number(value):
     if absolute >= 1_000_000:
         return f"{value / 1_000_000:.2f}M"
 
-    if absolute >= 1_000:
-        return f"{value / 1_000:.2f}K"
-
-    return f"{value:,.2f}"
+    return f"{value:,.0f}"
 
 
-def colour_text(text, colour):
-    return f"{colour}{text}{Fore.RESET}"
+def format_percentage(value):
+    value = safe_float(value)
 
-
-def colour_score(score):
-    if score >= 70:
-        colour = GREEN
-    elif score >= 55:
-        colour = AMBER
-    else:
-        colour = RED
-
-    return f"{colour}{score}/100{Fore.RESET}"
-
-
-def colour_sentiment(sentiment):
-    if sentiment == "POSITIVE":
-        return f"{GREEN}{sentiment}{Fore.RESET}"
-
-    if sentiment == "NEGATIVE":
-        return f"{RED}{sentiment}{Fore.RESET}"
-
-    return f"{AMBER}{sentiment}{Fore.RESET}"
-
-
-def colour_risk(risk):
-    if risk in ["VERY HIGH", "HIGH"]:
-        return f"{RED}{risk}{Fore.RESET}"
-
-    if risk == "MODERATE":
-        return f"{AMBER}{risk}{Fore.RESET}"
-
-    return f"{GREEN}{risk}{Fore.RESET}"
-
-
-def colour_valuation(valuation):
-    if valuation == "ATTRACTIVE":
-        return f"{GREEN}{valuation}{Fore.RESET}"
-
-    if valuation == "EXPENSIVE":
-        return f"{RED}{valuation}{Fore.RESET}"
-
-    return f"{AMBER}{valuation}{Fore.RESET}"
-
-
-def colour_quality(quality):
-    if quality in ["EXCELLENT", "STRONG"]:
-        return f"{GREEN}{quality}{Fore.RESET}"
-
-    if quality in ["WEAK", "POOR"]:
-        return f"{RED}{quality}{Fore.RESET}"
-
-    return f"{AMBER}{quality}{Fore.RESET}"
-
-
-def colour_catalyst(catalyst):
-    if catalyst == "STRONG":
-        return f"{GREEN}{catalyst}{Fore.RESET}"
-
-    if catalyst == "WEAK":
-        return f"{RED}{catalyst}{Fore.RESET}"
-
-    return f"{AMBER}{catalyst}{Fore.RESET}"
-
-
-def colour_upside(upside):
-    if upside is None:
+    if value is None:
         return "N/A"
 
-    if upside >= 10:
-        return f"{GREEN}{upside:.1f}%{Fore.RESET}"
+    return f"{value * 100:.1f}%"
 
-    if upside >= 0:
-        return f"{AMBER}{upside:.1f}%{Fore.RESET}"
 
-    return f"{RED}{upside:.1f}%{Fore.RESET}"
+def format_ratio(value):
+    value = safe_float(value)
+
+    if value is None:
+        return "N/A"
+
+    return f"{value:.2f}"
 
 
 # =========================================================
@@ -187,11 +208,12 @@ def get_news_sentiment(title):
         "approved",
         "breakthrough",
         "bullish",
-        "guidance",
-        "outlook",
-        "demand",
         "revenue",
-        "earnings"
+        "guidance",
+        "demand",
+        "award",
+        "wins",
+        "winner"
     ]
 
     negative_words = [
@@ -219,10 +241,11 @@ def get_news_sentiment(title):
         "concerns",
         "bearish",
         "risk",
-        "slump",
         "recall",
-        "fraud",
-        "layoffs"
+        "layoffs",
+        "layoff",
+        "slump",
+        "disappointing"
     ]
 
     positive_score = sum(
@@ -296,10 +319,7 @@ def get_analyst_text(info):
 
     consensus = get_analyst_consensus(info)
 
-    if consensus == "STRONG BUY":
-        return "strong analyst consensus"
-
-    if consensus == "BUY":
+    if consensus in ["STRONG BUY", "BUY"]:
         return "positive analyst consensus"
 
     if consensus == "HOLD":
@@ -355,38 +375,29 @@ def get_business_quality(info):
     score = 0
 
     if roe is not None:
-
         if roe >= 0.20:
             score += 2
-
         elif roe >= 0.10:
             score += 1
 
     if profit_margin is not None:
-
         if profit_margin >= 0.15:
             score += 2
-
         elif profit_margin > 0:
             score += 1
 
     if operating_margin is not None:
-
         if operating_margin >= 0.15:
             score += 2
-
         elif operating_margin > 0:
             score += 1
 
     if score >= 5:
         quality = "EXCELLENT"
-
     elif score >= 3:
         quality = "STRONG"
-
     elif score >= 1:
         quality = "WEAK"
-
     else:
         quality = "POOR"
 
@@ -430,8 +441,13 @@ def get_growth(info):
 def get_risk(info, growth):
 
     beta = safe_float(info.get("beta"))
-    profit_margin = safe_float(info.get("profitMargins"))
-    debt_to_equity = safe_float(info.get("debtToEquity"))
+    profit_margin = safe_float(
+        info.get("profitMargins")
+    )
+
+    debt_to_equity = safe_float(
+        info.get("debtToEquity")
+    )
 
     risk_score = 0
 
@@ -439,10 +455,8 @@ def get_risk(info, growth):
 
         if beta >= 2:
             risk_score += 3
-
         elif beta >= 1.4:
             risk_score += 2
-
         elif beta >= 1:
             risk_score += 1
 
@@ -450,7 +464,6 @@ def get_risk(info, growth):
 
         if debt_to_equity >= 150:
             risk_score += 2
-
         elif debt_to_equity >= 80:
             risk_score += 1
 
@@ -515,7 +528,7 @@ def get_events(stock, info):
     events = []
 
     # -----------------------------------------------------
-    # Earnings
+    # Earnings timestamp
     # -----------------------------------------------------
 
     earnings = info.get("earningsTimestamp")
@@ -528,13 +541,11 @@ def get_events(stock, info):
                 earnings
             ).date()
 
-            events.append(
-                {
-                    "date": event_date,
-                    "type": "EARNINGS",
-                    "priority": 1
-                }
-            )
+            events.append({
+                "date": event_date,
+                "type": "EARNINGS",
+                "priority": 1
+            })
 
         except Exception:
             pass
@@ -543,9 +554,7 @@ def get_events(stock, info):
     # Dividend
     # -----------------------------------------------------
 
-    ex_dividend = info.get(
-        "exDividendDate"
-    )
+    ex_dividend = info.get("exDividendDate")
 
     if ex_dividend:
 
@@ -555,13 +564,11 @@ def get_events(stock, info):
                 ex_dividend
             ).date()
 
-            events.append(
-                {
-                    "date": event_date,
-                    "type": "DIVIDEND",
-                    "priority": 3
-                }
-            )
+            events.append({
+                "date": event_date,
+                "type": "DIVIDEND",
+                "priority": 3
+            })
 
         except Exception:
             pass
@@ -586,26 +593,39 @@ def get_events(stock, info):
 
                 if earnings_dates:
 
+                    if not isinstance(
+                        earnings_dates,
+                        list
+                    ):
+                        earnings_dates = [
+                            earnings_dates
+                        ]
+
                     for event_date in earnings_dates:
 
-                        if hasattr(
-                            event_date,
-                            "date"
-                        ):
-                            event_date = event_date.date()
+                        try:
 
-                        if isinstance(
-                            event_date,
-                            date
-                        ):
+                            if hasattr(
+                                event_date,
+                                "date"
+                            ):
+                                event_date = (
+                                    event_date.date()
+                                )
 
-                            events.append(
-                                {
+                            if isinstance(
+                                event_date,
+                                date
+                            ):
+
+                                events.append({
                                     "date": event_date,
                                     "type": "EARNINGS",
                                     "priority": 1
-                                }
-                            )
+                                })
+
+                        except Exception:
+                            pass
 
     except Exception:
         pass
@@ -615,7 +635,6 @@ def get_events(stock, info):
     # -----------------------------------------------------
 
     unique = []
-
     seen = set()
 
     for event in events:
@@ -681,18 +700,15 @@ def calculate_score(
     score = 50
 
     # -----------------------------------------------------
-    # Business Quality
+    # Business quality
     # -----------------------------------------------------
 
     if quality == "EXCELLENT":
         score += 15
-
     elif quality == "STRONG":
         score += 10
-
     elif quality == "WEAK":
         score -= 8
-
     elif quality == "POOR":
         score -= 15
 
@@ -702,13 +718,10 @@ def calculate_score(
 
     if growth >= 20:
         score += 15
-
     elif growth >= 10:
         score += 10
-
     elif growth >= 5:
         score += 5
-
     elif growth < 0:
         score -= 10
 
@@ -718,7 +731,6 @@ def calculate_score(
 
     if valuation == "ATTRACTIVE":
         score += 10
-
     elif valuation == "EXPENSIVE":
         score -= 10
 
@@ -728,13 +740,10 @@ def calculate_score(
 
     if analyst_consensus == "STRONG BUY":
         score += 8
-
     elif analyst_consensus == "BUY":
         score += 5
-
     elif analyst_consensus == "SELL":
         score -= 5
-
     elif analyst_consensus == "STRONG SELL":
         score -= 8
 
@@ -744,7 +753,6 @@ def calculate_score(
 
     if catalyst_strength == "STRONG":
         score += 5
-
     elif catalyst_strength == "WEAK":
         score -= 2
 
@@ -754,7 +762,6 @@ def calculate_score(
 
     if news_sentiment == "POSITIVE":
         score += 4
-
     elif news_sentiment == "NEGATIVE":
         score -= 4
 
@@ -764,10 +771,8 @@ def calculate_score(
 
     if risk == "VERY HIGH":
         score -= 15
-
     elif risk == "HIGH":
         score -= 8
-
     elif risk == "LOW":
         score += 3
 
@@ -824,17 +829,14 @@ def get_action_and_reason(item):
         reasons.append(
             "exceptional business quality"
         )
-
     elif quality == "STRONG":
         reasons.append(
             "strong business quality"
         )
-
     elif quality == "WEAK":
         reasons.append(
             "weak business quality"
         )
-
     elif quality == "POOR":
         reasons.append(
             "poor business quality"
@@ -848,17 +850,14 @@ def get_action_and_reason(item):
         reasons.append(
             "strong growth"
         )
-
     elif growth >= 10:
         reasons.append(
             "healthy growth"
         )
-
     elif growth < 0:
         reasons.append(
             "declining growth"
         )
-
     elif growth <= 5:
         reasons.append(
             "limited growth"
@@ -872,12 +871,10 @@ def get_action_and_reason(item):
         reasons.append(
             "attractive valuation"
         )
-
     elif valuation == "EXPENSIVE":
         reasons.append(
             "expensive valuation"
         )
-
     else:
         reasons.append(
             "fair valuation"
@@ -900,7 +897,6 @@ def get_action_and_reason(item):
         reasons.append(
             "strong upcoming catalysts"
         )
-
     elif catalyst == "MODERATE":
         reasons.append(
             "some upcoming catalysts"
@@ -914,12 +910,10 @@ def get_action_and_reason(item):
         reasons.append(
             "very high risk"
         )
-
     elif risk == "HIGH":
         reasons.append(
             "high risk"
         )
-
     elif risk == "LOW":
         reasons.append(
             "relatively low risk"
@@ -938,7 +932,6 @@ def get_action_and_reason(item):
         reasons.append(
             "positive recent news"
         )
-
     elif sentiment == "NEGATIVE":
         reasons.append(
             "negative recent news"
@@ -964,7 +957,7 @@ def get_action_and_reason(item):
         action = "SELL"
 
     # -----------------------------------------------------
-    # Priorities
+    # Priority reasons
     # -----------------------------------------------------
 
     if action == "BUY":
@@ -975,7 +968,6 @@ def get_action_and_reason(item):
             "healthy growth",
             "exceptional business quality",
             "strong business quality",
-            "strong analyst consensus",
             "positive analyst consensus",
             "strong upcoming catalysts",
             "positive recent news",
@@ -1063,7 +1055,8 @@ def get_action_and_reason(item):
 def analyse_stock(ticker):
 
     print(
-        f"{GREY}Analysing {ticker}...{Fore.RESET}"
+        f"{GREY}Analysing {ticker}..."
+        f"{Fore.RESET}"
     )
 
     try:
@@ -1082,67 +1075,14 @@ def analyse_stock(ticker):
             "N/A"
         )
 
-        # =================================================
-        # MARKET DATA
-        # =================================================
-
-        current_price = safe_float(
-            info.get("currentPrice")
-            or info.get("regularMarketPrice")
+        industry = info.get(
+            "industry",
+            "N/A"
         )
 
-        previous_close = safe_float(
-            info.get("previousClose")
-        )
-
-        day_low = safe_float(
-            info.get("dayLow")
-        )
-
-        day_high = safe_float(
-            info.get("dayHigh")
-        )
-
-        fifty_two_week_low = safe_float(
-            info.get("fiftyTwoWeekLow")
-        )
-
-        fifty_two_week_high = safe_float(
-            info.get("fiftyTwoWeekHigh")
-        )
-
-        fifty_two_week_position = None
-
-        if (
-            current_price is not None
-            and fifty_two_week_low is not None
-            and fifty_two_week_high is not None
-            and fifty_two_week_high > fifty_two_week_low
-        ):
-
-            fifty_two_week_position = (
-                (
-                    current_price
-                    - fifty_two_week_low
-                )
-                /
-                (
-                    fifty_two_week_high
-                    - fifty_two_week_low
-                )
-            ) * 100
-
-        market_cap = safe_float(
-            info.get("marketCap")
-        )
-
-        enterprise_value = safe_float(
-            info.get("enterpriseValue")
-        )
-
-        # =================================================
+        # -------------------------------------------------
         # NEWS
-        # =================================================
+        # -------------------------------------------------
 
         news_items = []
 
@@ -1175,13 +1115,11 @@ def analyse_stock(ticker):
                         title
                     )
 
-                    news_items.append(
-                        {
-                            "title": title,
-                            "summary": summary,
-                            "sentiment": sentiment
-                        }
-                    )
+                    news_items.append({
+                        "title": title,
+                        "summary": summary,
+                        "sentiment": sentiment
+                    })
 
         except Exception:
             pass
@@ -1199,10 +1137,6 @@ def analyse_stock(ticker):
             "NEGATIVE"
         )
 
-        neutral = sentiments.count(
-            "NEUTRAL"
-        )
-
         if positive > negative:
             overall_news_sentiment = "POSITIVE"
 
@@ -1212,9 +1146,108 @@ def analyse_stock(ticker):
         else:
             overall_news_sentiment = "NEUTRAL"
 
-        # =================================================
+        # -------------------------------------------------
         # FUNDAMENTALS
-        # =================================================
+        # -------------------------------------------------
+
+        valuation = get_valuation(
+            info
+        )
+
+        quality, quality_score = (
+            get_business_quality(info)
+        )
+
+        growth = get_growth(
+            info
+        )
+
+        risk = get_risk(
+            info,
+            growth
+        )
+
+        analyst_consensus = (
+            get_analyst_consensus(info)
+        )
+
+        catalyst_strength = (
+            get_catalyst_strength(info)
+        )
+
+        # -------------------------------------------------
+        # MARKET DATA
+        # -------------------------------------------------
+
+        current_price = safe_float(
+            info.get("currentPrice")
+            or info.get("regularMarketPrice")
+        )
+
+        previous_close = safe_float(
+            info.get("previousClose")
+        )
+
+        day_low = safe_float(
+            info.get("dayLow")
+        )
+
+        day_high = safe_float(
+            info.get("dayHigh")
+        )
+
+        fifty_two_week_low = safe_float(
+            info.get("fiftyTwoWeekLow")
+        )
+
+        fifty_two_week_high = safe_float(
+            info.get("fiftyTwoWeekHigh")
+        )
+
+        fifty_two_week_change = safe_float(
+            info.get("52WeekChange")
+        )
+
+        beta = safe_float(
+            info.get("beta")
+        )
+
+        market_cap = safe_float(
+            info.get("marketCap")
+        )
+
+        enterprise_value = safe_float(
+            info.get("enterpriseValue")
+        )
+
+        # -------------------------------------------------
+        # 52-WEEK POSITION
+        # -------------------------------------------------
+
+        fifty_two_week_position = None
+
+        if (
+            current_price is not None
+            and fifty_two_week_low is not None
+            and fifty_two_week_high is not None
+            and fifty_two_week_high > fifty_two_week_low
+        ):
+
+            fifty_two_week_position = (
+                (
+                    current_price
+                    - fifty_two_week_low
+                )
+                /
+                (
+                    fifty_two_week_high
+                    - fifty_two_week_low
+                )
+            ) * 100
+
+        # -------------------------------------------------
+        # FINANCIAL FUNDAMENTALS
+        # -------------------------------------------------
 
         revenue = safe_float(
             info.get("totalRevenue")
@@ -1233,12 +1266,20 @@ def analyse_stock(ticker):
             or info.get("netIncome")
         )
 
+        free_cash_flow = safe_float(
+            info.get("freeCashflow")
+        )
+
         operating_cash_flow = safe_float(
             info.get("operatingCashflow")
         )
 
-        free_cash_flow = safe_float(
-            info.get("freeCashflow")
+        total_cash = safe_float(
+            info.get("totalCash")
+        )
+
+        total_debt = safe_float(
+            info.get("totalDebt")
         )
 
         debt_to_equity = safe_float(
@@ -1265,6 +1306,14 @@ def analyse_stock(ticker):
             info.get("operatingMargins")
         )
 
+        gross_margin = safe_float(
+            info.get("grossMargins")
+        )
+
+        # -------------------------------------------------
+        # GROWTH FUNDAMENTALS
+        # -------------------------------------------------
+
         revenue_growth = safe_float(
             info.get("revenueGrowth")
         )
@@ -1273,9 +1322,17 @@ def analyse_stock(ticker):
             info.get("earningsGrowth")
         )
 
-        # =================================================
-        # VALUATION
-        # =================================================
+        earnings_quarterly_growth = safe_float(
+            info.get("earningsQuarterlyGrowth")
+        )
+
+        gross_profit_growth = safe_float(
+            info.get("grossProfits")
+        )
+
+        # -------------------------------------------------
+        # VALUATION DATA
+        # -------------------------------------------------
 
         trailing_pe = safe_float(
             info.get("trailingPE")
@@ -1313,122 +1370,74 @@ def analyse_stock(ticker):
             info.get("payoutRatio")
         )
 
-        valuation = get_valuation(
-            info
-        )
+        # -------------------------------------------------
+        # EARNINGS DATA
+        # -------------------------------------------------
 
-        # =================================================
-        # BUSINESS QUALITY
-        # =================================================
-
-        quality, quality_score = (
-            get_business_quality(info)
-        )
-
-        # =================================================
-        # GROWTH
-        # =================================================
-
-        growth = get_growth(
-            info
-        )
-
-        # =================================================
-        # RISK
-        # =================================================
-
-        risk = get_risk(
-            info,
-            growth
-        )
-
-        # =================================================
-        # ANALYST CONSENSUS
-        # =================================================
-
-        analyst_consensus = (
-            get_analyst_consensus(info)
-        )
-
-        analyst_count = info.get(
-            "numberOfAnalystOpinions"
-        )
-
-        target_mean_price = safe_float(
-            info.get("targetMeanPrice")
-        )
-
-        target_high_price = safe_float(
-            info.get("targetHighPrice")
-        )
-
-        target_low_price = safe_float(
-            info.get("targetLowPrice")
-        )
-
-        target_upside = None
-
-        if (
-            target_mean_price is not None
-            and current_price is not None
-            and current_price != 0
-        ):
-
-            target_upside = (
-                target_mean_price
-                /
-                current_price
-                - 1
-            ) * 100
-
-        # =================================================
-        # EARNINGS
-        # =================================================
-
-        earnings_timestamp = info.get(
+        earnings_date = info.get(
             "earningsTimestamp"
         )
 
-        earnings_date = None
+        earnings_date_formatted = None
 
-        if earnings_timestamp:
+        if earnings_date:
 
             try:
 
-                earnings_date = (
+                earnings_date_formatted = (
                     datetime.fromtimestamp(
-                        earnings_timestamp
-                    ).date()
+                        earnings_date
+                    ).strftime(
+                        "%d %b %Y"
+                    )
                 )
 
             except Exception:
-                earnings_date = None
+                pass
 
-        forward_eps = safe_float(
-            info.get("forwardEps")
+        earnings_estimate = safe_float(
+            info.get("epsForward")
         )
 
         trailing_eps = safe_float(
             info.get("trailingEps")
         )
 
-        earnings_data = {
-            "date": earnings_date,
-            "forward_eps": forward_eps,
-            "trailing_eps": trailing_eps
-        }
-
-        # =================================================
-        # CATALYSTS
-        # =================================================
-
-        catalyst_strength = (
-            get_catalyst_strength(info)
+        forward_eps = safe_float(
+            info.get("forwardEps")
         )
 
-        # =================================================
+        # -------------------------------------------------
+        # ANALYST DATA
+        # -------------------------------------------------
+
+        analyst_count = safe_float(
+            info.get(
+                "numberOfAnalystOpinions"
+            )
+        )
+
+        target_mean = safe_float(
+            info.get(
+                "targetMeanPrice"
+            )
+        )
+
+        target_high = safe_float(
+            info.get(
+                "targetHighPrice"
+            )
+        )
+
+        target_low = safe_float(
+            info.get(
+                "targetLowPrice"
+            )
+        )
+
+        # -------------------------------------------------
         # SCORE
-        # =================================================
+        # -------------------------------------------------
 
         score = calculate_score(
             info,
@@ -1446,18 +1455,18 @@ def analyse_stock(ticker):
             score
         )
 
-        # =================================================
+        # -------------------------------------------------
         # EVENTS
-        # =================================================
+        # -------------------------------------------------
 
         events = get_events(
             stock,
             info
         )
 
-        # =================================================
+        # -------------------------------------------------
         # MODEL DATA
-        # =================================================
+        # -------------------------------------------------
 
         model = {
             "score": score,
@@ -1476,44 +1485,24 @@ def analyse_stock(ticker):
             "verdict": verdict
         }
 
-        # =================================================
-        # RETURN COMPLETE RESULT
-        # =================================================
-
         return {
-
             "ticker": ticker,
-
             "name": name,
-
             "sector": sector,
-
+            "industry": industry,
             "info": info,
 
             "news": news_items,
-
             "sentiments": sentiments,
-
             "overall_news_sentiment":
                 overall_news_sentiment,
 
             "valuation": valuation,
+            "risk": risk,
+            "analyst_consensus":
+                analyst_consensus,
 
-            "valuation_data": {
-                "trailing_pe": trailing_pe,
-                "forward_pe": forward_pe,
-                "peg_ratio": peg_ratio,
-                "price_to_book": price_to_book,
-                "price_to_sales": price_to_sales,
-                "enterprise_to_revenue":
-                    enterprise_to_revenue,
-                "enterprise_to_ebitda":
-                    enterprise_to_ebitda,
-                "dividend_yield":
-                    dividend_yield,
-                "payout_ratio":
-                    payout_ratio
-            },
+            "events": events,
 
             "market": {
                 "current_price":
@@ -1528,8 +1517,12 @@ def analyse_stock(ticker):
                     fifty_two_week_low,
                 "fifty_two_week_high":
                     fifty_two_week_high,
+                "fifty_two_week_change":
+                    fifty_two_week_change,
                 "fifty_two_week_position":
                     fifty_two_week_position,
+                "beta":
+                    beta,
                 "market_cap":
                     market_cap,
                 "enterprise_value":
@@ -1545,10 +1538,14 @@ def analyse_stock(ticker):
                     operating_income,
                 "net_income":
                     net_income,
-                "operating_cash_flow":
-                    operating_cash_flow,
                 "free_cash_flow":
                     free_cash_flow,
+                "operating_cash_flow":
+                    operating_cash_flow,
+                "total_cash":
+                    total_cash,
+                "total_debt":
+                    total_debt,
                 "debt_to_equity":
                     debt_to_equity,
                 "current_ratio":
@@ -1561,50 +1558,69 @@ def analyse_stock(ticker):
                     profit_margin,
                 "operating_margin":
                     operating_margin,
+                "gross_margin":
+                    gross_margin,
                 "revenue_growth":
                     revenue_growth,
                 "earnings_growth":
-                    earnings_growth
+                    earnings_growth,
+                "earnings_quarterly_growth":
+                    earnings_quarterly_growth
             },
 
-            "earnings":
-                earnings_data,
+            "valuation_data": {
+                "trailing_pe":
+                    trailing_pe,
+                "forward_pe":
+                    forward_pe,
+                "peg_ratio":
+                    peg_ratio,
+                "price_to_book":
+                    price_to_book,
+                "price_to_sales":
+                    price_to_sales,
+                "enterprise_to_revenue":
+                    enterprise_to_revenue,
+                "enterprise_to_ebitda":
+                    enterprise_to_ebitda,
+                "dividend_yield":
+                    dividend_yield,
+                "payout_ratio":
+                    payout_ratio
+            },
 
-            "risk": risk,
+            "earnings": {
+                "date":
+                    earnings_date_formatted,
+                "trailing_eps":
+                    trailing_eps,
+                "forward_eps":
+                    forward_eps,
+                "estimate":
+                    earnings_estimate
+            },
 
-            "analyst_consensus":
-                analyst_consensus,
+            "analyst": {
+                "count":
+                    analyst_count,
+                "target_mean":
+                    target_mean,
+                "target_high":
+                    target_high,
+                "target_low":
+                    target_low
+            },
 
-            "analyst_count":
-                analyst_count,
-
-            "target_mean_price":
-                target_mean_price,
-
-            "target_high_price":
-                target_high_price,
-
-            "target_low_price":
-                target_low_price,
-
-            "target_upside":
-                target_upside,
-
-            "events":
-                events,
-
-            "model":
-                model,
-
-            "score":
-                score
+            "model": model,
+            "score": score
         }
 
     except Exception as e:
 
         print(
             f"{RED}Error analysing "
-            f"{ticker}: {e}{Fore.RESET}"
+            f"{ticker}: {e}"
+            f"{Fore.RESET}"
         )
 
         return None
@@ -1617,7 +1633,6 @@ def analyse_stock(ticker):
 def print_summary(results):
 
     print()
-
     print("=" * 75)
 
     print(
@@ -1637,12 +1652,15 @@ def print_summary(results):
 
         return
 
+    # -----------------------------------------------------
+    # STOCK ACTIONS
+    # -----------------------------------------------------
+
     print()
 
     print(
         f"{CYAN}{BOLD}"
         f"STOCK ACTION"
-        f"{'REASON':>25}"
         f"{Fore.RESET}"
     )
 
@@ -1654,48 +1672,29 @@ def print_summary(results):
             get_action_and_reason(item)
         )
 
-        if action == "BUY":
-
-            action_display = (
-                f"{GREEN}{BOLD}"
-                f"BUY"
-                f"{Fore.RESET}"
-            )
-
-        elif action == "HOLD":
-
-            action_display = (
-                f"{AMBER}{BOLD}"
-                f"HOLD"
-                f"{Fore.RESET}"
-            )
-
-        else:
-
-            action_display = (
-                f"{RED}{BOLD}"
-                f"SELL"
-                f"{Fore.RESET}"
-            )
+        action_display = colour_action(
+            action
+        )
 
         print()
 
         print(
             f"{item['ticker']:<11}"
             f"{action_display}"
+            f"  "
+            f"{colour_score(item['score'])}"
         )
 
         print(
-            f" {explanation}"
+            f"  {explanation}"
         )
 
-        print()
+    print()
+    print("-" * 75)
 
-        print("-" * 75)
-
-    # =====================================================
+    # -----------------------------------------------------
     # BEST OPPORTUNITY
-    # =====================================================
+    # -----------------------------------------------------
 
     best = max(
         results,
@@ -1717,9 +1716,9 @@ def print_summary(results):
         f"{best['model']['verdict']}"
     )
 
-    # =====================================================
+    # -----------------------------------------------------
     # HIGHEST RISK
-    # =====================================================
+    # -----------------------------------------------------
 
     risk_order = {
         "LOW": 1,
@@ -1747,9 +1746,9 @@ def print_summary(results):
         f"{colour_risk(highest_risk['risk'])}"
     )
 
-    # =====================================================
+    # -----------------------------------------------------
     # MOST ATTRACTIVE VALUATION
-    # =====================================================
+    # -----------------------------------------------------
 
     attractive = [
         item
@@ -1781,41 +1780,32 @@ def print_summary(results):
         f"{colour_valuation(most_attractive['valuation'])}"
     )
 
-    # =====================================================
+    # -----------------------------------------------------
     # OVERALL NEWS SENTIMENT
-    # =====================================================
+    # -----------------------------------------------------
 
     positive = sum(
-        item["sentiments"].count(
-            "POSITIVE"
-        )
+        item["sentiments"].count("POSITIVE")
         for item in results
     )
 
     negative = sum(
-        item["sentiments"].count(
-            "NEGATIVE"
-        )
+        item["sentiments"].count("NEGATIVE")
         for item in results
     )
 
     neutral = sum(
-        item["sentiments"].count(
-            "NEUTRAL"
-        )
+        item["sentiments"].count("NEUTRAL")
         for item in results
     )
 
     if positive > negative:
-
         overall_sentiment = "POSITIVE"
 
     elif negative > positive:
-
         overall_sentiment = "NEGATIVE"
 
     else:
-
         overall_sentiment = "NEUTRAL"
 
     print()
@@ -1825,9 +1815,9 @@ def print_summary(results):
         f"{colour_sentiment(overall_sentiment)}"
     )
 
-    # =====================================================
+    # -----------------------------------------------------
     # STRONGEST BUSINESS
-    # =====================================================
+    # -----------------------------------------------------
 
     strongest_business = max(
         results,
@@ -1842,14 +1832,12 @@ def print_summary(results):
         f"{GREEN}{strongest_business['ticker']}"
         f"{Fore.RESET}"
         f" — "
-        f"{colour_quality("
-            f"strongest_business['model']['quality']"
-        f")}"
+        f"{colour_quality(strongest_business['model']['quality'])}"
     )
 
-    # =====================================================
+    # -----------------------------------------------------
     # STRONGEST CATALYST
-    # =====================================================
+    # -----------------------------------------------------
 
     catalyst_results = [
         item
@@ -1873,15 +1861,12 @@ def print_summary(results):
             f"{GREEN}{strongest_catalyst['ticker']}"
             f"{Fore.RESET}"
             f" — "
-            f"{colour_catalyst("
-                f"strongest_catalyst"
-                f"['model']['catalyst_strength']"
-            f")}"
+            f"{colour_catalyst(strongest_catalyst['model']['catalyst_strength'])}"
         )
 
-    # =====================================================
+    # -----------------------------------------------------
     # IMMEDIATE KEY DATES
-    # =====================================================
+    # -----------------------------------------------------
 
     print()
 
@@ -1901,17 +1886,13 @@ def print_summary(results):
 
             if event["date"] >= date.today():
 
-                all_events.append(
-                    {
-                        "ticker":
-                            item["ticker"],
-                        **event
-                    }
-                )
+                all_events.append({
+                    "ticker": item["ticker"],
+                    **event
+                })
 
     all_events.sort(
-        key=lambda x:
-        (
+        key=lambda x: (
             x["date"],
             x["priority"]
         )
@@ -1933,16 +1914,12 @@ def print_summary(results):
         else:
             timing = f"{days} days"
 
-        event_colour = (
-            get_event_colour(
-                event["type"]
-            )
+        event_colour = get_event_colour(
+            event["type"]
         )
 
-        event_type = (
-            get_event_icon(
-                event["type"]
-            )
+        event_type = get_event_icon(
+            event["type"]
         )
 
         print(
@@ -1960,30 +1937,36 @@ def print_summary(results):
             "No upcoming key dates found."
         )
 
+    # -----------------------------------------------------
+    # NEWS COUNTS
+    # -----------------------------------------------------
+
     print()
 
     print(
-        f"Companies Analysed: "
+        "Companies Analysed: "
         f"{len(results)}"
     )
 
     print(
-        f"Positive News Articles: "
-        f"{GREEN}{positive}{Fore.RESET}"
+        "Positive News Articles: "
+        f"{GREEN}{positive}"
+        f"{Fore.RESET}"
     )
 
     print(
-        f"Neutral News Articles: "
-        f"{AMBER}{neutral}{Fore.RESET}"
+        "Neutral News Articles: "
+        f"{AMBER}{neutral}"
+        f"{Fore.RESET}"
     )
 
     print(
-        f"Negative News Articles: "
-        f"{RED}{negative}{Fore.RESET}"
+        "Negative News Articles: "
+        f"{RED}{negative}"
+        f"{Fore.RESET}"
     )
 
     print()
-
     print("-" * 75)
 
 
@@ -1994,6 +1977,18 @@ def print_summary(results):
 def print_stock_report(item):
 
     ticker = item["ticker"]
+
+    info = item["info"]
+
+    market = item["market"]
+
+    fundamentals = item["fundamentals"]
+
+    valuation_data = item["valuation_data"]
+
+    earnings = item["earnings"]
+
+    analyst = item["analyst"]
 
     print()
 
@@ -2008,9 +2003,162 @@ def print_stock_report(item):
     print("=" * 75)
 
     print(
-        f"Sector: "
-        f"{item['sector']}"
+        f"Sector: {item['sector']}"
     )
+
+    print(
+        f"Industry: {item['industry']}"
+    )
+
+    # =====================================================
+    # MARKET DATA
+    # =====================================================
+
+    print()
+
+    print(
+        f"{CYAN}{BOLD}"
+        f"MARKET DATA"
+        f"{Fore.RESET}"
+    )
+
+    current_price = market[
+        "current_price"
+    ]
+
+    previous_close = market[
+        "previous_close"
+    ]
+
+    day_low = market[
+        "day_low"
+    ]
+
+    day_high = market[
+        "day_high"
+    ]
+
+    print(
+        "Current Price: "
+        f"{format_number(current_price)}"
+    )
+
+    print(
+        "Previous Close: "
+        f"{format_number(previous_close)}"
+    )
+
+    if day_low is not None:
+        print(
+            "Day Low: "
+            f"{format_number(day_low)}"
+        )
+
+    if day_high is not None:
+        print(
+            "Day High: "
+            f"{format_number(day_high)}"
+        )
+
+    # -----------------------------------------------------
+    # 52 WEEK RANGE
+    # -----------------------------------------------------
+
+    print()
+
+    print(
+        f"{BOLD}"
+        f"52-Week Range:"
+        f"{Fore.RESET}"
+    )
+
+    print(
+        f"Low: "
+        f"{format_number(market['fifty_two_week_low'])}"
+    )
+
+    print(
+        f"High: "
+        f"{format_number(market['fifty_two_week_high'])}"
+    )
+
+    position = market[
+        "fifty_two_week_position"
+    ]
+
+    if position is not None:
+
+        if position >= 70:
+            position_display = (
+                f"{GREEN}{position:.1f}%"
+                f"{Fore.RESET}"
+            )
+
+        elif position >= 35:
+            position_display = (
+                f"{AMBER}{position:.1f}%"
+                f"{Fore.RESET}"
+            )
+
+        else:
+            position_display = (
+                f"{RED}{position:.1f}%"
+                f"{Fore.RESET}"
+            )
+
+        print(
+            "52-Week Position: "
+            f"{position_display}"
+        )
+
+    if market["fifty_two_week_change"] is not None:
+
+        change = (
+            market["fifty_two_week_change"]
+            * 100
+        )
+
+        if change >= 0:
+
+            change_display = (
+                f"{GREEN}{change:.1f}%"
+                f"{Fore.RESET}"
+            )
+
+        else:
+
+            change_display = (
+                f"{RED}{change:.1f}%"
+                f"{Fore.RESET}"
+            )
+
+        print(
+            "52-Week Change: "
+            f"{change_display}"
+        )
+
+    # -----------------------------------------------------
+    # MARKET SIZE
+    # -----------------------------------------------------
+
+    print()
+
+    print(
+        "Market Cap: "
+        f"{format_large_number(market['market_cap'])}"
+    )
+
+    print(
+        "Enterprise Value: "
+        f"{format_large_number(market['enterprise_value'])}"
+    )
+
+    if market["beta"] is not None:
+
+        print(
+            "Beta: "
+            f"{format_number(market['beta'])}"
+        )
 
     # =====================================================
     # OVERALL SCORE
@@ -2019,7 +2167,9 @@ def print_stock_report(item):
     print()
 
     print(
-        f"{BOLD}Overall Score:{Fore.RESET} "
+        f"{BOLD}"
+        f"Overall Score:"
+        f"{Fore.RESET} "
         f"{colour_score(item['score'])}"
     )
 
@@ -2036,127 +2186,16 @@ def print_stock_report(item):
         get_action_and_reason(item)
     )
 
-    if action == "BUY":
-
-        action_display = (
-            f"{GREEN}{BOLD}"
-            f"BUY"
-            f"{Fore.RESET}"
-        )
-
-    elif action == "HOLD":
-
-        action_display = (
-            f"{AMBER}{BOLD}"
-            f"HOLD"
-            f"{Fore.RESET}"
-        )
-
-    else:
-
-        action_display = (
-            f"{RED}{BOLD}"
-            f"SELL"
-            f"{Fore.RESET}"
-        )
-
     print()
 
     print(
         f"Analyst Model Action: "
-        f"{action_display}"
+        f"{colour_action(action)}"
     )
 
     print(
         f"Reason: "
         f"{explanation}"
-    )
-
-    # =====================================================
-    # MARKET DATA
-    # =====================================================
-
-    print()
-
-    print(
-        f"{CYAN}{BOLD}"
-        f"MARKET DATA"
-        f"{Fore.RESET}"
-    )
-
-    market = item["market"]
-
-    print(
-        f"Current Price: "
-        f"{format_number(market['current_price'])}"
-    )
-
-    print(
-        f"Previous Close: "
-        f"{format_number(market['previous_close'])}"
-    )
-
-    print(
-        f"Day Range: "
-        f"{format_number(market['day_low'])}"
-        f" - "
-        f"{format_number(market['day_high'])}"
-    )
-
-    print(
-        f"52 Week Range: "
-        f"{format_number(market['fifty_two_week_low'])}"
-        f" - "
-        f"{format_number(market['fifty_two_week_high'])}"
-    )
-
-    position = market[
-        "fifty_two_week_position"
-    ]
-
-    if position is not None:
-
-        if position >= 75:
-            position_display = (
-                f"{GREEN}{position:.1f}%"
-                f"{Fore.RESET}"
-            )
-
-        elif position >= 50:
-            position_display = (
-                f"{AMBER}{position:.1f}%"
-                f"{Fore.RESET}"
-            )
-
-        else:
-            position_display = (
-                f"{RED}{position:.1f}%"
-                f"{Fore.RESET}"
-            )
-
-        print(
-            f"52 Week Position: "
-            f"{position_display}"
-        )
-
-    else:
-
-        print(
-            "52 Week Position: N/A"
-        )
-
-    print(
-        f"Market Cap: "
-        f"{format_large_number("
-            f"market['market_cap']"
-        f")}"
-    )
-
-    print(
-        f"Enterprise Value: "
-        f"{format_large_number("
-            f"market['enterprise_value']"
-        f")}"
     )
 
     # =====================================================
@@ -2172,95 +2211,129 @@ def print_stock_report(item):
     )
 
     print(
-        f"Quality: "
-        f"{colour_quality("
-            f"item['model']['quality']"
-        f")}"
+        "Quality: "
+        f"{colour_quality(item['model']['quality'])}"
     )
 
     print(
-        f"Quality Score: "
-        f"{item['model']['quality_score']}/6"
-    )
-
-    print(
-        f"Growth: "
+        "Growth: "
         f"{item['model']['growth']:.1f}%"
     )
 
-    fundamentals = item[
-        "fundamentals"
-    ]
+    # =====================================================
+    # FUNDAMENTALS
+    # =====================================================
+
+    print()
 
     print(
-        f"Revenue Growth: "
-        f"{format_percentage("
-            f"fundamentals['revenue_growth']"
-        f")}"
+        f"{CYAN}{BOLD}"
+        f"FUNDAMENTALS"
+        f"{Fore.RESET}"
     )
 
     print(
-        f"Earnings Growth: "
-        f"{format_percentage("
-            f"fundamentals['earnings_growth']"
-        f")}"
+        "Revenue: "
+        f"{format_large_number(fundamentals['revenue'])}"
     )
 
     print(
-        f"Profit Margin: "
-        f"{format_percentage("
-            f"fundamentals['profit_margin'] * 100 "
-            f"if fundamentals['profit_margin'] "
-            f"is not None else None"
-        )}"
+        "Gross Profit: "
+        f"{format_large_number(fundamentals['gross_profit'])}"
     )
 
     print(
-        f"Operating Margin: "
-        f"{format_percentage("
-            f"fundamentals['operating_margin'] * 100 "
-            f"if fundamentals['operating_margin'] "
-            f"is not None else None"
-        )}"
+        "Operating Income: "
+        f"{format_large_number(fundamentals['operating_income'])}"
     )
 
     print(
-        f"ROE: "
-        f"{format_percentage("
-            f"fundamentals['return_on_equity'] * 100 "
-            f"if fundamentals['return_on_equity'] "
-            f"is not None else None"
-        )}"
+        "Net Income: "
+        f"{format_large_number(fundamentals['net_income'])}"
     )
 
     print(
-        f"ROA: "
-        f"{format_percentage("
-            f"fundamentals['return_on_assets'] * 100 "
-            f"if fundamentals['return_on_assets'] "
-            f"is not None else None"
-        )}"
+        "Free Cash Flow: "
+        f"{format_large_number(fundamentals['free_cash_flow'])}"
     )
 
     print(
-        f"Debt to Equity: "
-        f"{format_number("
-            f"fundamentals['debt_to_equity']"
-        f")}"
+        "Operating Cash Flow: "
+        f"{format_large_number(fundamentals['operating_cash_flow'])}"
+    )
+
+    print()
+
+    print(
+        "Revenue Growth: "
+        f"{format_percentage(fundamentals['revenue_growth'])}"
     )
 
     print(
-        f"Current Ratio: "
-        f"{format_number("
-            f"fundamentals['current_ratio']"
-        f")}"
+        "Earnings Growth: "
+        f"{format_percentage(fundamentals['earnings_growth'])}"
     )
 
     print(
-        f"Free Cash Flow: "
-        f"{format_large_number("
-            f"fundamentals['free_cash_flow']"
-        f")}"
+        "Quarterly Earnings Growth: "
+        f"{format_percentage(fundamentals['earnings_quarterly_growth'])}"
+    )
+
+    # -----------------------------------------------------
+    # PROFITABILITY
+    # -----------------------------------------------------
+
+    print()
+
+    print(
+        "Gross Margin: "
+        f"{format_percentage(fundamentals['gross_margin'])}"
+    )
+
+    print(
+        "Operating Margin: "
+        f"{format_percentage(fundamentals['operating_margin'])}"
+    )
+
+    print(
+        "Profit Margin: "
+        f"{format_percentage(fundamentals['profit_margin'])}"
+    )
+
+    print(
+        "Return on Equity: "
+        f"{format_percentage(fundamentals['return_on_equity'])}"
+    )
+
+    print(
+        "Return on Assets: "
+        f"{format_percentage(fundamentals['return_on_assets'])}"
+    )
+
+    # -----------------------------------------------------
+    # BALANCE SHEET
+    # -----------------------------------------------------
+
+    print()
+
+    print(
+        "Cash: "
+        f"{format_large_number(fundamentals['total_cash'])}"
+    )
+
+    print(
+        "Total Debt: "
+        f"{format_large_number(fundamentals['total_debt'])}"
+    )
+
+    print(
+        "Debt / Equity: "
+        f"{format_number(fundamentals['debt_to_equity'])}"
+    )
+
+    print(
+        "Current Ratio: "
+        f"{format_number(fundamentals['current_ratio'])}"
     )
 
     # =====================================================
@@ -2276,63 +2349,53 @@ def print_stock_report(item):
     )
 
     print(
-        f"Assessment: "
-        f"{colour_valuation("
-            f"item['valuation']"
-        f")}"
-    )
-
-    valuation_data = item[
-        "valuation_data"
-    ]
-
-    print(
-        f"Trailing P/E: "
-        f"{format_number("
-            f"valuation_data['trailing_pe']"
-        f")}"
+        "Assessment: "
+        f"{colour_valuation(item['valuation'])}"
     )
 
     print(
-        f"Forward P/E: "
-        f"{format_number("
-            f"valuation_data['forward_pe']"
-        f")}"
+        "Trailing P/E: "
+        f"{format_number(valuation_data['trailing_pe'])}"
     )
 
     print(
-        f"PEG Ratio: "
-        f"{format_number("
-            f"valuation_data['peg_ratio']"
-        f")}"
+        "Forward P/E: "
+        f"{format_number(valuation_data['forward_pe'])}"
     )
 
     print(
-        f"Price to Book: "
-        f"{format_number("
-            f"valuation_data['price_to_book']"
-        f")}"
+        "PEG Ratio: "
+        f"{format_number(valuation_data['peg_ratio'])}"
     )
 
     print(
-        f"Price to Sales: "
-        f"{format_number("
-            f"valuation_data['price_to_sales']"
-        f")}"
+        "Price / Book: "
+        f"{format_number(valuation_data['price_to_book'])}"
     )
 
     print(
-        f"EV/Revenue: "
-        f"{format_number("
-            f"valuation_data['enterprise_to_revenue']"
-        f")}"
+        "Price / Sales: "
+        f"{format_number(valuation_data['price_to_sales'])}"
     )
 
     print(
-        f"EV/EBITDA: "
-        f"{format_number("
-            f"valuation_data['enterprise_to_ebitda']"
-        f")}"
+        "EV / Revenue: "
+        f"{format_number(valuation_data['enterprise_to_revenue'])}"
+    )
+
+    print(
+        "EV / EBITDA: "
+        f"{format_number(valuation_data['enterprise_to_ebitda'])}"
+    )
+
+    print(
+        "Dividend Yield: "
+        f"{format_percentage(valuation_data['dividend_yield'])}"
+    )
+
+    print(
+        "Payout Ratio: "
+        f"{format_percentage(valuation_data['payout_ratio'])}"
     )
 
     # =====================================================
@@ -2347,37 +2410,32 @@ def print_stock_report(item):
         f"{Fore.RESET}"
     )
 
-    earnings = item["earnings"]
-
-    earnings_date = earnings[
-        "date"
-    ]
-
-    if earnings_date:
+    if earnings["date"]:
 
         print(
-            f"Next Earnings Date: "
-            f"{earnings_date.strftime('%d %b %Y')}"
+            "Next Earnings: "
+            f"{earnings['date']}"
         )
 
     else:
 
         print(
-            "Next Earnings Date: N/A"
+            "Next Earnings: N/A"
         )
 
     print(
-        f"Forward EPS: "
-        f"{format_number("
-            f"earnings['forward_eps']"
-        f")}"
+        "Trailing EPS: "
+        f"{format_number(earnings['trailing_eps'])}"
     )
 
     print(
-        f"Trailing EPS: "
-        f"{format_number("
-            f"earnings['trailing_eps']"
-        f")}"
+        "Forward EPS: "
+        f"{format_number(earnings['forward_eps'])}"
+    )
+
+    print(
+        "EPS Estimate: "
+        f"{format_number(earnings['estimate'])}"
     )
 
     # =====================================================
@@ -2428,58 +2486,87 @@ def print_stock_report(item):
         consensus_display = consensus
 
     print(
-        f"Consensus: "
+        "Consensus: "
         f"{consensus_display}"
     )
 
-    if item["analyst_count"] is not None:
+    if analyst["count"] is not None:
 
         print(
-            f"Analyst Count: "
-            f"{item['analyst_count']}"
+            "Analyst Count: "
+            f"{format_number(analyst['count'], 0)}"
         )
 
-    if item["target_mean_price"] is not None:
+    if analyst["target_mean"] is not None:
 
         print(
-            f"Average Target: "
-            f"{format_number("
-                f"item['target_mean_price']"
-            f")}"
+            "Average Target: "
+            f"{format_number(analyst['target_mean'])}"
         )
 
-    if market["current_price"] is not None:
+    if current_price is not None:
 
         print(
-            f"Current Price: "
-            f"{format_number("
-                f"market['current_price']"
-            f")}"
+            "Current Price: "
+            f"{format_number(current_price)}"
         )
 
-    print(
-        f"Target Upside: "
-        f"{colour_upside("
-            f"item['target_upside']"
-        f")}"
-    )
+    # -----------------------------------------------------
+    # TARGET UPSIDE
+    # -----------------------------------------------------
 
-    if item["target_high_price"] is not None:
+    target = analyst["target_mean"]
+
+    if (
+        target is not None
+        and current_price is not None
+        and current_price != 0
+    ):
+
+        upside = (
+            target
+            / current_price
+            - 1
+        ) * 100
+
+        if upside >= 10:
+
+            upside_display = (
+                f"{GREEN}{upside:.1f}%"
+                f"{Fore.RESET}"
+            )
+
+        elif upside >= 0:
+
+            upside_display = (
+                f"{AMBER}{upside:.1f}%"
+                f"{Fore.RESET}"
+            )
+
+        else:
+
+            upside_display = (
+                f"{RED}{upside:.1f}%"
+                f"{Fore.RESET}"
+            )
 
         print(
-            f"High Target: "
-            f"{format_number("
-                f"item['target_high_price']"
-            f")}"
+            "Target Upside: "
+            f"{upside_display}"
         )
 
-    if item["target_low_price"] is not None:
+    if analyst["target_high"] is not None:
 
         print(
-            f"Low Target: "
-            f"{format_number("
-                f"item['target_low_price']"
-            f")}"
+            "High Target: "
+            f"{format_number(analyst['target_high'])}"
+        )
+
+    if analyst["target_low"] is not None:
+
+        print(
+            "Low Target: "
+            f"{format_number(analyst['target_low'])}"
         )
 
     # =====================================================
@@ -2495,19 +2582,15 @@ def print_stock_report(item):
     )
 
     print(
-        f"Risk Assessment: "
+        "Risk Assessment: "
         f"{colour_risk(item['risk'])}"
     )
 
-    beta = safe_float(
-        item["info"].get("beta")
-    )
-
-    if beta is not None:
+    if market["beta"] is not None:
 
         print(
-            f"Beta: "
-            f"{beta:.2f}"
+            "Beta: "
+            f"{format_number(market['beta'])}"
         )
 
     # =====================================================
@@ -2523,10 +2606,8 @@ def print_stock_report(item):
     )
 
     print(
-        f"Catalyst Strength: "
-        f"{colour_catalyst("
-            f"item['model']['catalyst_strength']"
-        f")}"
+        "Catalyst Strength: "
+        f"{colour_catalyst(item['model']['catalyst_strength'])}"
     )
 
     # =====================================================
@@ -2554,10 +2635,8 @@ def print_stock_report(item):
             start=1
         ):
 
-            sentiment = (
-                colour_sentiment(
-                    news["sentiment"]
-                )
+            sentiment = colour_sentiment(
+                news["sentiment"]
             )
 
             print()
@@ -2568,26 +2647,24 @@ def print_stock_report(item):
             )
 
             print(
-                f" Sentiment: "
+                f"   Sentiment: "
                 f"{sentiment}"
             )
 
             print(
-                f" Summary: "
+                f"   Summary: "
                 f"{news['summary']}"
             )
 
     # =====================================================
-    # NEWS OVERALL
+    # OVERALL NEWS
     # =====================================================
 
     print()
 
     print(
-        f"Overall News Sentiment: "
-        f"{colour_sentiment("
-            f"item['overall_news_sentiment']"
-        f")}"
+        "Overall News Sentiment: "
+        f"{colour_sentiment(item['overall_news_sentiment'])}"
     )
 
     # =====================================================
@@ -2609,8 +2686,7 @@ def print_stock_report(item):
     ]
 
     future_events.sort(
-        key=lambda x:
-        (
+        key=lambda x: (
             x["date"],
             x["priority"]
         )
@@ -2662,7 +2738,7 @@ def print_stock_report(item):
 # MAIN REPORT
 # =========================================================
 
-def generate_report(portfolio):
+def generate_report():
 
     print()
 
@@ -2685,52 +2761,6 @@ def generate_report(portfolio):
     )
 
     print()
-
-    # -----------------------------------------------------
-    # CLEAN USER PORTFOLIO
-    # -----------------------------------------------------
-
-    if isinstance(
-        portfolio,
-        str
-    ):
-
-        portfolio = [
-            ticker.strip().upper()
-            for ticker in portfolio.split(",")
-            if ticker.strip()
-        ]
-
-    else:
-
-        portfolio = [
-            str(ticker).strip().upper()
-            for ticker in portfolio
-            if str(ticker).strip()
-        ]
-
-    # Remove duplicates while
-    # preserving order
-
-    portfolio = list(
-        dict.fromkeys(
-            portfolio
-        )
-    )
-
-    if not portfolio:
-
-        print(
-            f"{RED}"
-            "No stocks selected."
-            f"{Fore.RESET}"
-        )
-
-        return []
-
-    # -----------------------------------------------------
-    # ANALYSE
-    # -----------------------------------------------------
 
     results = []
 
@@ -2790,31 +2820,11 @@ def generate_report(portfolio):
 
     print()
 
-    # Returning results is important
-    # for the Streamlit app.
-
-    return results
-
 
 # =========================================================
-# RUN DIRECTLY
+# RUN
 # =========================================================
 
 if __name__ == "__main__":
 
-    # This fallback is only for running
-    # main.py directly from the command line.
-    #
-    # The Streamlit app will pass its
-    # own portfolio into generate_report().
-
-    default_portfolio = [
-        "NVDA",
-        "AAPL",
-        "MSFT"
-    ]
-
-    generate_report(
-        default_portfolio
-    )
-```
+    generate_report()
