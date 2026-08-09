@@ -1,79 +1,106 @@
 import streamlit as st
-import io
-import sys
 from main import generate_report
 
 # =========================================================
-# PAGE CONFIG
+# PAGE
 # =========================================================
-st.set_page_config(
-    page_title="Investment Analyst",
-    layout="wide"
-)
-
-# =========================================================
-# TITLE
-# =========================================================
+st.set_page_config(layout="wide")
 st.title("📊 Investment Analyst Dashboard")
 
 # =========================================================
-# SESSION STATE INIT
+# SESSION
 # =========================================================
 if "portfolio" not in st.session_state:
-    st.session_state.portfolio = ["NVDA", "AAPL", "MSFT"]
-
-if "run_analysis" not in st.session_state:
-    st.session_state.run_analysis = True
+    st.session_state.portfolio = ["NVDA"]
 
 # =========================================================
-# USER INPUT
+# INPUT
 # =========================================================
-st.subheader("Your Stock List")
-
 user_input = st.text_input(
-    "Enter stock tickers (comma separated)",
+    "Enter stocks (comma separated)",
     value=", ".join(st.session_state.portfolio)
 )
 
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("Update Portfolio"):
-        st.session_state.portfolio = [
-            t.strip().upper()
-            for t in user_input.split(",")
-            if t.strip()
-        ]
-        st.success("Portfolio updated")
-
-with col2:
-    if st.button("🔄 Refresh Analysis"):
-        st.session_state.run_analysis = True
+if st.button("Update Portfolio"):
+    st.session_state.portfolio = [
+        t.strip().upper()
+        for t in user_input.split(",")
+        if t.strip()
+    ]
 
 portfolio = st.session_state.portfolio
 
 # =========================================================
 # RUN ANALYSIS
 # =========================================================
-if st.session_state.run_analysis:
+results = generate_report(portfolio)
 
-    st.write("---")
-    st.subheader("Analysis Results")
+# =========================================================
+# SUMMARY SECTION
+# =========================================================
+st.subheader("📊 Summary")
 
-    if not portfolio:
-        st.warning("Please enter at least one stock.")
+if results:
+    col1, col2, col3 = st.columns(3)
+
+    best = max(results, key=lambda x: x["score"])
+    highest_risk = max(results, key=lambda x: x["risk"])
+    cheapest = min(results, key=lambda x: x["valuation"])
+
+    col1.metric("Best Opportunity", best["ticker"], best["score"])
+    col2.metric("Highest Risk", highest_risk["ticker"], highest_risk["risk"])
+    col3.metric("Most Attractive Valuation", cheapest["ticker"], cheapest["valuation"])
+
+# =========================================================
+# STOCK CARDS
+# =========================================================
+st.subheader("📈 Stock Analysis")
+
+for stock in results:
+
+    st.markdown("---")
+
+    # Header
+    st.markdown(f"## {stock['ticker']}")
+
+    # Metrics row
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Price", stock["price"])
+    col2.metric("Score", stock["score"])
+    col3.metric("Growth %", f"{stock['growth']:.1f}")
+    col4.metric("52W Position", f"{stock['pos']:.1f}%" if stock["pos"] else "N/A")
+
+    # Second row
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Valuation", stock["valuation"])
+    col2.metric("Risk", stock["risk"])
+    col3.metric("Analyst", stock["analyst"])
+
+    # Action
+    if stock["action"] == "BUY":
+        st.success(f"BUY — {stock['reason']}")
+    elif stock["action"] == "HOLD":
+        st.warning(f"HOLD — {stock['reason']}")
     else:
-        try:
-            # Capture print output from main.py
-            buffer = io.StringIO()
-            sys.stdout = buffer
+        st.error(f"SELL — {stock['reason']}")
 
-            generate_report(portfolio)
+    # News
+    st.markdown("### 📰 Recent News")
 
-            sys.stdout = sys.__stdout__
+    if stock["news"]:
+        for n in stock["news"]:
+            st.markdown(f"**{n[0]}**")
+            st.write(n[1])
+    else:
+        st.write("No recent news")
 
-            st.text(buffer.getvalue())
+    # Events
+    st.markdown("### 📅 Key Dates")
 
-        except Exception as e:
-            sys.stdout = sys.__stdout__
-            st.error(f"Error running analysis: {e}")
+    if stock["events"]:
+        for e in stock["events"]:
+            st.write(f"{e[0]}: {e[1]}")
+    else:
+        st.write("No upcoming events")
