@@ -2,19 +2,25 @@ import yfinance as yf
 from datetime import datetime, date
 
 # =========================================================
-# HELPERS
+# SAFE HELPERS
 # =========================================================
-def safe_get(d, key):
-    return d.get(key) if d else None
+def safe_get(info, key):
+    return info.get(key) if info else None
 
 
-def format_number(value):
+def pct(value):
+    if value is None:
+        return "N/A"
+    return f"{value * 100:.1f}%"
+
+
+def num(value):
     if value is None:
         return "N/A"
     return f"{value:,.2f}"
 
 
-def format_large(value):
+def large(value):
     if value is None:
         return "N/A"
     if value >= 1_000_000_000:
@@ -24,20 +30,17 @@ def format_large(value):
     return f"{value:,.0f}"
 
 
-def format_percent(value):
-    if value is None:
-        return "N/A"
-    return f"{value*100:.1f}%"
-
-
 # =========================================================
-# NEWS SENTIMENT
+# SENTIMENT
 # =========================================================
-def get_sentiment(title):
-    text = title.lower()
+def get_sentiment(text):
+    if not text:
+        return "NEUTRAL"
 
-    positive = ["growth", "profit", "beat", "upgrade", "strong", "record"]
-    negative = ["loss", "miss", "downgrade", "weak", "decline", "risk"]
+    text = text.lower()
+
+    positive = ["growth", "profit", "beat", "strong", "record", "upgrade"]
+    negative = ["loss", "miss", "weak", "decline", "risk", "downgrade"]
 
     pos = sum(1 for w in positive if w in text)
     neg = sum(1 for w in negative if w in text)
@@ -50,9 +53,47 @@ def get_sentiment(title):
 
 
 # =========================================================
+# VALUATION
+# =========================================================
+def get_valuation(info):
+    pe = safe_get(info, "forwardPE")
+
+    if pe is None:
+        return "FAIR"
+
+    if pe < 20:
+        return "ATTRACTIVE"
+    elif pe > 40:
+        return "EXPENSIVE"
+    return "FAIR"
+
+
+# =========================================================
+# GROWTH
+# =========================================================
+def get_growth(info):
+    growth = safe_get(info, "revenueGrowth")
+    return growth * 100 if growth else 0
+
+
+# =========================================================
+# RISK
+# =========================================================
+def get_risk(info):
+    beta = safe_get(info, "beta")
+
+    if beta is None:
+        return "MODERATE"
+
+    if beta > 1.5:
+        return "HIGH"
+    return "MODERATE"
+
+
+# =========================================================
 # SCORING
 # =========================================================
-def score_stock(info, growth, valuation, risk, sentiment):
+def score_stock(growth, valuation, risk, sentiment):
     score = 50
 
     # Growth
@@ -73,7 +114,7 @@ def score_stock(info, growth, valuation, risk, sentiment):
     if risk == "HIGH":
         score -= 8
 
-    # Sentiment
+    # News
     if sentiment == "POSITIVE":
         score += 5
     elif sentiment == "NEGATIVE":
@@ -91,57 +132,41 @@ def get_action(score):
 
 
 # =========================================================
-# ANALYSIS
+# ANALYSE STOCK
 # =========================================================
 def analyse_stock(ticker):
+
     stock = yf.Ticker(ticker)
     info = stock.info
 
-    # Market data
     price = safe_get(info, "currentPrice")
-    high_52 = safe_get(info, "fiftyTwoWeekHigh")
-    low_52 = safe_get(info, "fiftyTwoWeekLow")
+    market_cap = safe_get(info, "marketCap")
 
-    if price and high_52 and low_52:
-        position = (price - low_52) / (high_52 - low_52) * 100
+    high = safe_get(info, "fiftyTwoWeekHigh")
+    low = safe_get(info, "fiftyTwoWeekLow")
+
+    if price and high and low:
+        position = (price - low) / (high - low) * 100
     else:
         position = None
 
-    # Growth
-    growth = safe_get(info, "revenueGrowth")
-    growth = growth * 100 if growth else 0
+    # fundamentals
+    growth = get_growth(info)
+    valuation = get_valuation(info)
+    risk = get_risk(info)
 
-    # Valuation
-    pe = safe_get(info, "forwardPE")
-    if pe:
-        if pe < 20:
-            valuation = "ATTRACTIVE"
-        elif pe > 40:
-            valuation = "EXPENSIVE"
-        else:
-            valuation = "FAIR"
-    else:
-        valuation = "FAIR"
-
-    # Risk
-    beta = safe_get(info, "beta")
-    if beta and beta > 1.5:
-        risk = "HIGH"
-    else:
-        risk = "MODERATE"
-
-    # News
+    # news
     news_items = []
-    sentiment_list = []
+    sentiments = []
 
     try:
         news = stock.news
         for item in news[:3]:
             title = item.get("title", "")
-            summary = item.get("summary", title[:150])
+            summary = item.get("summary", title[:120])
             sentiment = get_sentiment(title)
 
-            sentiment_list.append(sentiment)
+            sentiments.append(sentiment)
 
             news_items.append({
                 "title": title,
@@ -151,77 +176,84 @@ def analyse_stock(ticker):
     except:
         pass
 
-    if sentiment_list.count("POSITIVE") > sentiment_list.count("NEGATIVE"):
+    # overall sentiment
+    if sentiments.count("POSITIVE") > sentiments.count("NEGATIVE"):
         overall_sentiment = "POSITIVE"
-    elif sentiment_list.count("NEGATIVE") > sentiment_list.count("POSITIVE"):
+    elif sentiments.count("NEGATIVE") > sentiments.count("POSITIVE"):
         overall_sentiment = "NEGATIVE"
     else:
         overall_sentiment = "NEUTRAL"
 
-    # Score
-    score = score_stock(info, growth, valuation, risk, overall_sentiment)
+    # scoring
+    score = score_stock(growth, valuation, risk, overall_sentiment)
     action = get_action(score)
 
     return {
         "ticker": ticker,
         "price": price,
-        "market_cap": safe_get(info, "marketCap"),
+        "market_cap": market_cap,
         "growth": growth,
         "valuation": valuation,
         "risk": risk,
+        "position": position,
         "score": score,
         "action": action,
-        "position": position,
-        "news": news_items,
         "sentiment": overall_sentiment,
+        "news": news_items,
         "target": safe_get(info, "targetMeanPrice")
     }
 
 
 # =========================================================
-# REPORT
+# MAIN REPORT
 # =========================================================
 def generate_report(portfolio):
-
-    results = []
 
     print("\n==============================")
     print("INVESTMENT ANALYST REPORT")
     print("==============================\n")
+
+    results = []
 
     for ticker in portfolio:
         try:
             result = analyse_stock(ticker)
             results.append(result)
         except Exception as e:
-            print(f"Error with {ticker}: {e}")
+            print(f"Error analysing {ticker}: {e}")
 
-    # Summary
+    if not results:
+        print("No data available.")
+        return
+
+    # =========================
+    # SUMMARY
+    # =========================
     print("SUMMARY\n")
 
     for r in results:
         print(f"{r['ticker']} | {r['action']} | Score: {r['score']}")
 
-    # Best opportunity
     best = max(results, key=lambda x: x["score"])
     print(f"\nBest Opportunity: {best['ticker']} ({best['score']})")
 
-    # Detailed
+    # =========================
+    # DETAILS
+    # =========================
     for r in results:
         print("\n----------------------------------")
-        print(f"{r['ticker']}")
+        print(r["ticker"])
 
-        print(f"Price: {format_number(r['price'])}")
-        print(f"Market Cap: {format_large(r['market_cap'])}")
-
+        print(f"Price: {num(r['price'])}")
+        print(f"Market Cap: {large(r['market_cap'])}")
         print(f"Growth: {r['growth']:.1f}%")
         print(f"Valuation: {r['valuation']}")
         print(f"Risk: {r['risk']}")
 
-        if r["position"] is not None:
+        if r["position"]:
             print(f"52 Week Position: {r['position']:.1f}%")
 
-        print(f"Target Price: {format_number(r['target'])}")
+        print(f"Target Price: {num(r['target'])}")
 
         print("\nNews:")
         for n in r["news"]:
