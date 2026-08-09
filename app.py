@@ -1,1178 +1,1621 @@
 import streamlit as st
-from main import generate_report
+import yfinance as yf
+from portfolio import portfolio
+from datetime import date, datetime
 
 # =========================================================
-
-# PAGE CONFIGURATION
-
+# PAGE SETUP
 # =========================================================
 
 st.set_page_config(
-page_title="Investment Analyst",
-page_icon="📊",
-layout="wide",
-initial_sidebar_state="expanded"
+    page_title="Investment Analyst",
+    page_icon="📊",
+    layout="wide"
 )
 
 # =========================================================
-
-# CUSTOM CSS
-
+# COLOUR / DISPLAY HELPERS
 # =========================================================
 
-st.markdown(
-""" <style>
+def action_colour(action):
+    if action == "BUY":
+        return "🟢"
+    elif action == "HOLD":
+        return "🟠"
+    return "🔴"
 
-```
-.main-title {
-    font-size: 2.2rem;
-    font-weight: 700;
-    margin-bottom: 0.2rem;
-}
 
-.subtitle {
-    color: #888888;
-    margin-bottom: 1.5rem;
-}
+def sentiment_colour(sentiment):
+    if sentiment == "POSITIVE":
+        return "🟢"
+    elif sentiment == "NEGATIVE":
+        return "🔴"
+    return "🟠"
 
-.stock-header {
-    font-size: 1.7rem;
-    font-weight: 700;
-    margin-bottom: 0.2rem;
-}
 
-.small-label {
-    color: #888888;
-    font-size: 0.85rem;
-}
+def risk_colour(risk):
+    if risk == "LOW":
+        return "🟢"
+    elif risk == "MODERATE":
+        return "🟠"
+    return "🔴"
 
-.buy-box {
-    padding: 14px;
-    border-radius: 10px;
-    background-color: rgba(0, 200, 83, 0.12);
-    border: 1px solid rgba(0, 200, 83, 0.35);
-    margin: 10px 0;
-}
 
-.hold-box {
-    padding: 14px;
-    border-radius: 10px;
-    background-color: rgba(255, 165, 0, 0.12);
-    border: 1px solid rgba(255, 165, 0, 0.40);
-    margin: 10px 0;
-}
+def valuation_colour(valuation):
+    if valuation == "ATTRACTIVE":
+        return "🟢"
+    elif valuation == "EXPENSIVE":
+        return "🔴"
+    return "🟠"
 
-.sell-box {
-    padding: 14px;
-    border-radius: 10px;
-    background-color: rgba(244, 67, 54, 0.12);
-    border: 1px solid rgba(244, 67, 54, 0.35);
-    margin: 10px 0;
-}
-
-.section-title {
-    font-size: 1.1rem;
-    font-weight: 700;
-    margin-top: 1rem;
-    margin-bottom: 0.5rem;
-}
-
-</style>
-""",
-unsafe_allow_html=True
-```
-
-)
 
 # =========================================================
-
-# TITLE
-
+# NEWS SENTIMENT
 # =========================================================
 
-st.markdown(
-'<div class="main-title">📊 Investment Analyst Dashboard</div>',
-unsafe_allow_html=True
-)
+def get_news_sentiment(title):
 
-st.markdown(
-'<div class="subtitle">Fundamental analysis, valuation, analysts, risk, catalysts and market data</div>',
-unsafe_allow_html=True
-)
+    if not title:
+        return "NEUTRAL"
 
-# =========================================================
+    text = title.lower()
 
-# SESSION STATE
-
-# =========================================================
-
-if "portfolio" not in st.session_state:
-st.session_state.portfolio = ["NVDA"]
-
-if "portfolio_input" not in st.session_state:
-st.session_state.portfolio_input = ", ".join(
-st.session_state.portfolio
-)
-
-# =========================================================
-
-# SIDEBAR
-
-# =========================================================
-
-with st.sidebar:
-
-```
-st.header("📋 My Stocks")
-
-st.caption(
-    "Enter the stocks you want the analyst to monitor."
-)
-
-portfolio_input = st.text_input(
-    "Stock tickers",
-    value=st.session_state.portfolio_input,
-    key="portfolio_input",
-    placeholder="NVDA, MSFT, CCJ, GOOGL"
-)
-
-update_clicked = st.button(
-    "🔄 Update Stock List",
-    use_container_width=True
-)
-
-if update_clicked:
-
-    new_portfolio = [
-        ticker.strip().upper()
-        for ticker in portfolio_input.split(",")
-        if ticker.strip()
+    positive_words = [
+        "growth", "profit", "profits", "beats", "beat",
+        "upgrade", "surge", "record", "strong", "raises",
+        "raised", "positive", "contract", "deal",
+        "partnership", "launch", "expands", "expansion",
+        "orders", "approval", "approved", "breakthrough",
+        "bullish"
     ]
 
-    # Remove duplicates while keeping order
-    new_portfolio = list(dict.fromkeys(new_portfolio))
+    negative_words = [
+        "loss", "losses", "miss", "misses", "downgrade",
+        "fall", "falls", "drop", "drops", "weak",
+        "warning", "cuts", "cut", "decline", "declines",
+        "lawsuit", "investigation", "delay", "delays",
+        "debt", "concern", "concerns", "bearish", "risk"
+    ]
 
-    if new_portfolio:
-        st.session_state.portfolio = new_portfolio
-        st.session_state.portfolio_input = ", ".join(
-            new_portfolio
-        )
-        st.success("Stock list updated.")
+    positive_score = sum(1 for word in positive_words if word in text)
+    negative_score = sum(1 for word in negative_words if word in text)
+
+    if positive_score > negative_score:
+        return "POSITIVE"
+
+    if negative_score > positive_score:
+        return "NEGATIVE"
+
+    return "NEUTRAL"
+
+
+# =========================================================
+# NEWS SUMMARY
+# =========================================================
+
+def create_news_summary(title):
+
+    if not title:
+        return "No summary available."
+
+    title = title.strip()
+
+    if len(title) > 180:
+        title = title[:177] + "..."
+
+    return title
+
+
+# =========================================================
+# ANALYST CONSENSUS
+# =========================================================
+
+def get_analyst_consensus(info):
+
+    recommendation = info.get("recommendationKey")
+
+    if not recommendation:
+        return "N/A"
+
+    recommendation = str(recommendation).lower()
+
+    mapping = {
+        "strong_buy": "STRONG BUY",
+        "strong buy": "STRONG BUY",
+        "buy": "BUY",
+        "outperform": "BUY",
+        "hold": "HOLD",
+        "neutral": "HOLD",
+        "market perform": "HOLD",
+        "sell": "SELL",
+        "underperform": "SELL",
+        "strong_sell": "STRONG SELL",
+        "strong sell": "STRONG SELL"
+    }
+
+    return mapping.get(
+        recommendation,
+        recommendation.upper()
+    )
+
+
+def get_analyst_text(info):
+
+    consensus = get_analyst_consensus(info)
+
+    if consensus in ["STRONG BUY", "BUY"]:
+        return "positive analyst consensus"
+
+    if consensus == "HOLD":
+        return "neutral analyst consensus"
+
+    if consensus in ["SELL", "STRONG SELL"]:
+        return "negative analyst consensus"
+
+    return None
+
+
+# =========================================================
+# VALUATION
+# =========================================================
+
+def get_valuation(info):
+
+    forward_pe = info.get("forwardPE")
+    trailing_pe = info.get("trailingPE")
+    peg = info.get("pegRatio")
+
+    if peg is not None:
+        try:
+            if peg < 1:
+                return "ATTRACTIVE"
+            elif peg > 2:
+                return "EXPENSIVE"
+        except Exception:
+            pass
+
+    pe = forward_pe or trailing_pe
+
+    if pe is not None:
+        try:
+            if pe < 20:
+                return "ATTRACTIVE"
+            elif pe > 40:
+                return "EXPENSIVE"
+        except Exception:
+            pass
+
+    return "FAIR"
+
+
+# =========================================================
+# BUSINESS QUALITY
+# =========================================================
+
+def get_business_quality(info):
+
+    roe = info.get("returnOnEquity")
+    profit_margin = info.get("profitMargins")
+    operating_margin = info.get("operatingMargins")
+
+    score = 0
+
+    if roe is not None:
+        try:
+            if roe >= 0.20:
+                score += 2
+            elif roe >= 0.10:
+                score += 1
+        except Exception:
+            pass
+
+    if profit_margin is not None:
+        try:
+            if profit_margin >= 0.15:
+                score += 2
+            elif profit_margin > 0:
+                score += 1
+        except Exception:
+            pass
+
+    if operating_margin is not None:
+        try:
+            if operating_margin >= 0.15:
+                score += 2
+            elif operating_margin > 0:
+                score += 1
+        except Exception:
+            pass
+
+    if score >= 5:
+        quality = "EXCELLENT"
+    elif score >= 3:
+        quality = "STRONG"
+    elif score >= 1:
+        quality = "WEAK"
     else:
-        st.warning("Please enter at least one ticker.")
+        quality = "POOR"
 
-st.divider()
+    return quality, score
 
-st.write("**Current list:**")
-
-for ticker in st.session_state.portfolio:
-    st.write(f"• {ticker}")
-
-st.divider()
-
-refresh_clicked = st.button(
-    "🔄 Refresh Analysis",
-    use_container_width=True
-)
-```
 
 # =========================================================
-
-# CURRENT PORTFOLIO
-
+# GROWTH
 # =========================================================
 
-portfolio = st.session_state.portfolio
+def get_growth(info):
 
-if not portfolio:
-st.warning("No stocks selected.")
-st.stop()
+    revenue_growth = info.get("revenueGrowth")
+    earnings_growth = info.get("earningsGrowth")
+
+    values = []
+
+    for value in [revenue_growth, earnings_growth]:
+        if value is not None:
+            try:
+                values.append(float(value))
+            except Exception:
+                pass
+
+    if not values:
+        return 0
+
+    return sum(values) / len(values) * 100
+
 
 # =========================================================
-
-# RUN ANALYSIS
-
+# RISK
 # =========================================================
 
-with st.spinner(
-f"Analysing {len(portfolio)} stock"
-+ ("..." if len(portfolio) == 1 else "s...")
+def get_risk(info, growth):
+
+    beta = info.get("beta")
+    profit_margin = info.get("profitMargins")
+    debt_to_equity = info.get("debtToEquity")
+
+    risk_score = 0
+
+    if beta is not None:
+        try:
+            if beta >= 2:
+                risk_score += 3
+            elif beta >= 1.4:
+                risk_score += 2
+            elif beta >= 1:
+                risk_score += 1
+        except Exception:
+            pass
+
+    if debt_to_equity is not None:
+        try:
+            if debt_to_equity >= 150:
+                risk_score += 2
+            elif debt_to_equity >= 80:
+                risk_score += 1
+        except Exception:
+            pass
+
+    if profit_margin is not None:
+        try:
+            if profit_margin < 0:
+                risk_score += 2
+        except Exception:
+            pass
+
+    if growth < 0:
+        risk_score += 1
+
+    if risk_score >= 5:
+        return "VERY HIGH"
+
+    elif risk_score >= 3:
+        return "HIGH"
+
+    elif risk_score >= 1:
+        return "MODERATE"
+
+    return "LOW"
+
+
+# =========================================================
+# CATALYSTS
+# =========================================================
+
+def get_catalyst_strength(info):
+
+    score = 0
+
+    earnings_date = info.get("earningsTimestamp")
+
+    if earnings_date:
+        score += 1
+
+    recommendation = info.get("recommendationKey")
+
+    if recommendation in ["strong_buy", "buy"]:
+        score += 1
+
+    if score >= 2:
+        return "STRONG"
+
+    elif score == 1:
+        return "MODERATE"
+
+    return "WEAK"
+
+
+# =========================================================
+# EVENTS
+# =========================================================
+
+def get_events(stock, info):
+
+    events = []
+
+    earnings = info.get("earningsTimestamp")
+
+    if earnings:
+        try:
+            event_date = datetime.fromtimestamp(
+                earnings
+            ).date()
+
+            events.append({
+                "date": event_date,
+                "type": "EARNINGS",
+                "priority": 1
+            })
+
+        except Exception:
+            pass
+
+    ex_dividend = info.get("exDividendDate")
+
+    if ex_dividend:
+        try:
+            event_date = datetime.fromtimestamp(
+                ex_dividend
+            ).date()
+
+            events.append({
+                "date": event_date,
+                "type": "DIVIDEND",
+                "priority": 3
+            })
+
+        except Exception:
+            pass
+
+    try:
+
+        calendar = stock.calendar
+
+        if calendar is not None and hasattr(calendar, "to_dict"):
+
+            calendar_data = calendar.to_dict()
+
+            earnings_dates = calendar_data.get(
+                "Earnings Date"
+            )
+
+            if earnings_dates:
+
+                for event_date in earnings_dates:
+
+                    if hasattr(event_date, "date"):
+                        event_date = event_date.date()
+
+                    if isinstance(event_date, date):
+
+                        events.append({
+                            "date": event_date,
+                            "type": "EARNINGS",
+                            "priority": 1
+                        })
+
+    except Exception:
+        pass
+
+    unique = []
+    seen = set()
+
+    for event in events:
+
+        key = (
+            event["date"],
+            event["type"]
+        )
+
+        if key not in seen:
+
+            seen.add(key)
+            unique.append(event)
+
+    return unique
+
+
+# =========================================================
+# SCORING
+# =========================================================
+
+def calculate_score(
+    info,
+    valuation,
+    quality,
+    quality_score,
+    growth,
+    analyst_consensus,
+    risk,
+    catalyst_strength,
+    news_sentiment
 ):
 
-```
-try:
-    results = generate_report(portfolio)
+    score = 50
 
-except Exception as e:
-    st.error(
-        f"Error running analysis: {e}"
+    if quality == "EXCELLENT":
+        score += 15
+    elif quality == "STRONG":
+        score += 10
+    elif quality == "WEAK":
+        score -= 8
+    elif quality == "POOR":
+        score -= 15
+
+    if growth >= 20:
+        score += 15
+    elif growth >= 10:
+        score += 10
+    elif growth >= 5:
+        score += 5
+    elif growth < 0:
+        score -= 10
+
+    if valuation == "ATTRACTIVE":
+        score += 10
+    elif valuation == "EXPENSIVE":
+        score -= 10
+
+    if analyst_consensus == "STRONG BUY":
+        score += 8
+    elif analyst_consensus == "BUY":
+        score += 5
+    elif analyst_consensus == "SELL":
+        score -= 5
+    elif analyst_consensus == "STRONG SELL":
+        score -= 8
+
+    if catalyst_strength == "STRONG":
+        score += 5
+    elif catalyst_strength == "WEAK":
+        score -= 2
+
+    if news_sentiment == "POSITIVE":
+        score += 4
+    elif news_sentiment == "NEGATIVE":
+        score -= 4
+
+    if risk == "VERY HIGH":
+        score -= 15
+    elif risk == "HIGH":
+        score -= 8
+    elif risk == "LOW":
+        score += 3
+
+    return max(0, min(100, score))
+
+
+def get_verdict(score):
+
+    if score >= 75:
+        return "Very Strong"
+
+    elif score >= 65:
+        return "Strong"
+
+    elif score >= 55:
+        return "Moderate"
+
+    elif score >= 40:
+        return "Weak"
+
+    return "Very Weak"
+
+
+# =========================================================
+# ACTION + JUSTIFICATION
+# =========================================================
+
+def get_action_and_reason(item):
+
+    score = item["score"]
+    quality = item["model"]["quality"]
+    valuation = item["valuation"]
+    risk = item["risk"]
+    growth = item["model"]["growth"]
+    catalyst = item["model"]["catalyst_strength"]
+
+    analyst_text = get_analyst_text(item["info"])
+
+    reasons = []
+
+    if quality == "EXCELLENT":
+        reasons.append("exceptional business quality")
+    elif quality == "STRONG":
+        reasons.append("strong business quality")
+    elif quality == "WEAK":
+        reasons.append("weak business quality")
+    elif quality == "POOR":
+        reasons.append("poor business quality")
+
+    if growth >= 17:
+        reasons.append("strong growth")
+    elif growth >= 10:
+        reasons.append("healthy growth")
+    elif growth < 0:
+        reasons.append("declining growth")
+    elif growth <= 5:
+        reasons.append("limited growth")
+
+    if valuation == "ATTRACTIVE":
+        reasons.append("attractive valuation")
+    elif valuation == "EXPENSIVE":
+        reasons.append("expensive valuation")
+    else:
+        reasons.append("fair valuation")
+
+    if analyst_text:
+        reasons.append(analyst_text)
+
+    if catalyst == "STRONG":
+        reasons.append("strong upcoming catalysts")
+    elif catalyst == "MODERATE":
+        reasons.append("some upcoming catalysts")
+
+    if risk == "VERY HIGH":
+        reasons.append("very high risk")
+    elif risk == "HIGH":
+        reasons.append("high risk")
+    elif risk == "LOW":
+        reasons.append("relatively low risk")
+
+    sentiment = item.get(
+        "overall_news_sentiment",
+        "NEUTRAL"
     )
-    st.stop()
-```
+
+    if sentiment == "POSITIVE":
+        reasons.append("positive recent news")
+    elif sentiment == "NEGATIVE":
+        reasons.append("negative recent news")
+
+    if score >= 70 and risk not in ["HIGH", "VERY HIGH"]:
+        action = "BUY"
+
+    elif score >= 50:
+        action = "HOLD"
+
+    else:
+        action = "SELL"
+
+    if action == "BUY":
+
+        priority = [
+            "attractive valuation",
+            "strong growth",
+            "healthy growth",
+            "exceptional business quality",
+            "strong business quality",
+            "positive analyst consensus",
+            "strong upcoming catalysts",
+            "positive recent news",
+            "relatively low risk"
+        ]
+
+    elif action == "HOLD":
+
+        priority = [
+            "expensive valuation",
+            "fair valuation",
+            "exceptional business quality",
+            "strong business quality",
+            "strong growth",
+            "healthy growth",
+            "positive analyst consensus",
+            "neutral analyst consensus",
+            "high risk",
+            "strong upcoming catalysts",
+            "negative recent news"
+        ]
+
+    else:
+
+        priority = [
+            "very high risk",
+            "high risk",
+            "poor business quality",
+            "weak business quality",
+            "negative analyst consensus",
+            "declining growth",
+            "limited growth",
+            "expensive valuation",
+            "negative recent news"
+        ]
+
+    selected = []
+
+    for reason in priority:
+
+        if reason in reasons:
+
+            selected.append(reason)
+
+        if len(selected) >= 3:
+            break
+
+    if not selected:
+        selected = reasons[:3]
+
+    if len(selected) == 1:
+
+        explanation = (
+            selected[0].capitalize() + "."
+        )
+
+    elif len(selected) == 2:
+
+        explanation = (
+            selected[0].capitalize()
+            + " and "
+            + selected[1]
+            + "."
+        )
+
+    else:
+
+        explanation = (
+            selected[0].capitalize()
+            + ", "
+            + selected[1]
+            + ", with "
+            + selected[2]
+            + "."
+        )
+
+    return action, explanation
+
 
 # =========================================================
+# STOCK ANALYSIS
+# =========================================================
 
-# NO RESULTS
+@st.cache_data(ttl=900)
+def analyse_stock(ticker):
+
+    try:
+
+        stock = yf.Ticker(ticker)
+
+        info = stock.info
+
+        name = info.get(
+            "longName",
+            ticker
+        )
+
+        sector = info.get(
+            "sector",
+            "N/A"
+        )
+
+        # -------------------------------------------------
+        # NEWS
+        # -------------------------------------------------
+
+        news_items = []
+
+        try:
+
+            raw_news = stock.news
+
+            if raw_news:
+
+                for item in raw_news[:3]:
+
+                    content = item.get(
+                        "content",
+                        {}
+                    )
+
+                    title = (
+                        content.get("title")
+                        or item.get("title")
+                        or "No title available"
+                    )
+
+                    summary = (
+                        content.get("summary")
+                        or item.get("summary")
+                        or create_news_summary(title)
+                    )
+
+                    sentiment = get_news_sentiment(
+                        title
+                    )
+
+                    news_items.append({
+                        "title": title,
+                        "summary": summary,
+                        "sentiment": sentiment
+                    })
+
+        except Exception:
+            pass
+
+        sentiments = [
+            item["sentiment"]
+            for item in news_items
+        ]
+
+        positive = sentiments.count("POSITIVE")
+        negative = sentiments.count("NEGATIVE")
+
+        if positive > negative:
+            overall_news_sentiment = "POSITIVE"
+
+        elif negative > positive:
+            overall_news_sentiment = "NEGATIVE"
+
+        else:
+            overall_news_sentiment = "NEUTRAL"
+
+        # -------------------------------------------------
+        # FUNDAMENTALS
+        # -------------------------------------------------
+
+        valuation = get_valuation(info)
+
+        quality, quality_score = (
+            get_business_quality(info)
+        )
+
+        growth = get_growth(info)
+
+        risk = get_risk(
+            info,
+            growth
+        )
+
+        analyst_consensus = (
+            get_analyst_consensus(info)
+        )
+
+        catalyst_strength = (
+            get_catalyst_strength(info)
+        )
+
+        # -------------------------------------------------
+        # SCORE
+        # -------------------------------------------------
+
+        score = calculate_score(
+            info,
+            valuation,
+            quality,
+            quality_score,
+            growth,
+            analyst_consensus,
+            risk,
+            catalyst_strength,
+            overall_news_sentiment
+        )
+
+        verdict = get_verdict(score)
+
+        # -------------------------------------------------
+        # EVENTS
+        # -------------------------------------------------
+
+        events = get_events(
+            stock,
+            info
+        )
+
+        # -------------------------------------------------
+        # MODEL
+        # -------------------------------------------------
+
+        model = {
+            "score": score,
+            "quality": quality,
+            "quality_score": quality_score,
+            "growth": growth,
+            "valuation_label": valuation,
+            "catalyst_strength": catalyst_strength,
+            "verdict": verdict
+        }
+
+        return {
+            "ticker": ticker,
+            "name": name,
+            "sector": sector,
+            "info": info,
+            "news": news_items,
+            "sentiments": sentiments,
+            "overall_news_sentiment": overall_news_sentiment,
+            "valuation": valuation,
+            "risk": risk,
+            "analyst_consensus": analyst_consensus,
+            "events": events,
+            "model": model,
+            "score": score
+        }
+
+    except Exception as e:
+
+        return {
+            "ticker": ticker,
+            "error": str(e)
+        }
+
 
 # =========================================================
+# MAIN APP
+# =========================================================
+
+st.title("📊 Investment Analyst")
+
+st.caption(
+    "Fundamentals • Valuation • Growth • Analysts • News • Catalysts • Key Dates"
+)
+
+if st.button("🔄 Refresh Analysis"):
+
+    st.cache_data.clear()
+    st.rerun()
+
+
+# =========================================================
+# ANALYSE PORTFOLIO
+# =========================================================
+
+results = []
+
+progress = st.progress(0)
+
+for index, ticker in enumerate(portfolio):
+
+    result = analyse_stock(ticker)
+
+    if "error" not in result:
+        results.append(result)
+
+    progress.progress(
+        (index + 1) / len(portfolio)
+    )
+
+progress.empty()
+
 
 if not results:
 
-```
-st.error(
-    "No stocks could be analysed. "
-    "Check the ticker symbols and try again."
-)
+    st.error("No stocks could be analysed.")
 
-st.stop()
-```
+    st.stop()
+
 
 # =========================================================
-
-# HELPER FUNCTIONS
-
-# =========================================================
-
-def get_value(dictionary, *keys, default=None):
-
-```
-current = dictionary
-
-for key in keys:
-
-    if not isinstance(current, dict):
-        return default
-
-    current = current.get(key)
-
-    if current is None:
-        return default
-
-return current
-```
-
-def format_number(value, decimals=2):
-
-```
-if value is None:
-    return "N/A"
-
-try:
-    return f"{float(value):,.{decimals}f}"
-except Exception:
-    return str(value)
-```
-
-def format_percent(value, decimals=1):
-
-```
-if value is None:
-    return "N/A"
-
-try:
-    return f"{float(value):.{decimals}f}%"
-except Exception:
-    return str(value)
-```
-
-def format_large_number(value):
-
-```
-if value is None:
-    return "N/A"
-
-try:
-
-    value = float(value)
-
-    if abs(value) >= 1_000_000_000_000:
-        return f"{value / 1_000_000_000_000:.2f}T"
-
-    if abs(value) >= 1_000_000_000:
-        return f"{value / 1_000_000_000:.2f}B"
-
-    if abs(value) >= 1_000_000:
-        return f"{value / 1_000_000:.2f}M"
-
-    if abs(value) >= 1_000:
-        return f"{value / 1_000:.2f}K"
-
-    return f"{value:,.0f}"
-
-except Exception:
-    return str(value)
-```
-
-def action_colour(action):
-
-```
-if action == "BUY":
-    return "green"
-
-if action == "HOLD":
-    return "orange"
-
-if action == "SELL":
-    return "red"
-
-return "gray"
-```
-
-def display_action(action, reason):
-
-```
-if action == "BUY":
-
-    st.success(
-        f"🟢 BUY\n\n{reason}"
-    )
-
-elif action == "HOLD":
-
-    st.warning(
-        f"🟠 HOLD\n\n{reason}"
-    )
-
-elif action == "SELL":
-
-    st.error(
-        f"🔴 SELL\n\n{reason}"
-    )
-
-else:
-
-    st.info(
-        f"{action}\n\n{reason}"
-    )
-```
-
-# =========================================================
-
 # SUMMARY
-
 # =========================================================
 
-st.header("📊 Portfolio Summary")
+st.header("Summary")
 
-# ---------------------------------------------------------
-
-# Summary calculations
-
-# ---------------------------------------------------------
+# Best opportunity
 
 best = max(
-results,
-key=lambda x: get_value(
-x,
-"score",
-default=0
-) or 0
+    results,
+    key=lambda x: x["score"]
 )
 
-# Risk ranking
+# Highest risk
 
 risk_order = {
-"LOW": 1,
-"MODERATE": 2,
-"HIGH": 3,
-"VERY HIGH": 4
+    "LOW": 1,
+    "MODERATE": 2,
+    "HIGH": 3,
+    "VERY HIGH": 4
 }
 
 highest_risk = max(
-results,
-key=lambda x: risk_order.get(
-x.get("risk", "LOW"),
-0
-)
+    results,
+    key=lambda x: risk_order.get(
+        x["risk"],
+        0
+    )
 )
 
-# Attractive valuation first
+# Attractive valuation
 
 attractive = [
-item
-for item in results
-if item.get("valuation") == "ATTRACTIVE"
+    item
+    for item in results
+    if item["valuation"] == "ATTRACTIVE"
 ]
 
 if attractive:
 
-```
-most_attractive = max(
-    attractive,
-    key=lambda x: x.get("score", 0)
-)
-```
+    most_attractive = max(
+        attractive,
+        key=lambda x: x["score"]
+    )
 
 else:
 
-```
-most_attractive = min(
-    results,
-    key=lambda x: x.get("score", 0)
-)
-```
+    most_attractive = min(
+        results,
+        key=lambda x: x["score"]
+    )
 
-# ---------------------------------------------------------
 
-# Summary metrics
+col1, col2, col3 = st.columns(3)
 
-# ---------------------------------------------------------
+with col1:
 
-summary_col1, summary_col2, summary_col3 = st.columns(3)
+    st.metric(
+        "Best Opportunity",
+        best["ticker"],
+        f"{best['score']}/100"
+    )
 
-with summary_col1:
+with col2:
 
-```
-st.metric(
-    "🏆 Best Opportunity",
-    best.get("ticker", "N/A"),
-    f"Score {best.get('score', 'N/A')}"
-)
-```
+    st.metric(
+        "Highest Risk",
+        highest_risk["ticker"],
+        highest_risk["risk"]
+    )
 
-with summary_col2:
+with col3:
 
-```
-st.metric(
-    "⚠️ Highest Risk",
-    highest_risk.get("ticker", "N/A"),
-    highest_risk.get("risk", "N/A")
-)
-```
+    st.metric(
+        "Most Attractive Valuation",
+        most_attractive["ticker"],
+        most_attractive["valuation"]
+    )
 
-with summary_col3:
-
-```
-st.metric(
-    "💰 Best Valuation",
-    most_attractive.get("ticker", "N/A"),
-    most_attractive.get("valuation", "N/A")
-)
-```
 
 # =========================================================
-
 # ACTION SUMMARY
-
 # =========================================================
 
-st.subheader("🎯 Investment Actions")
+st.subheader("Stock Actions")
 
 for item in results:
 
-```
-ticker = item.get("ticker", "N/A")
-action = item.get("action", "N/A")
-reason = item.get("reason", "No explanation available.")
-score = item.get("score", "N/A")
-
-if action == "BUY":
-
-    st.success(
-        f"🟢 **{ticker} — BUY** | Score: {score}\n\n"
-        f"{reason}"
+    action, explanation = (
+        get_action_and_reason(item)
     )
 
-elif action == "HOLD":
+    icon = action_colour(action)
 
-    st.warning(
-        f"🟠 **{ticker} — HOLD** | Score: {score}\n\n"
-        f"{reason}"
+    with st.container(border=True):
+
+        st.markdown(
+            f"### {icon} {item['ticker']} — {action}"
+        )
+
+        st.write(
+            explanation
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            st.write(
+                f"**Score:** {item['score']}/100"
+            )
+
+        with c2:
+            st.write(
+                f"**Quality:** {item['model']['quality']}"
+            )
+
+        with c3:
+            st.write(
+                f"**Growth:** {item['model']['growth']:.1f}%"
+            )
+
+        with c4:
+            st.write(
+                f"**Analysts:** {item['analyst_consensus']}"
+            )
+
+
+# =========================================================
+# IMMEDIATE KEY DATES
+# =========================================================
+
+st.subheader("Immediate Key Dates")
+
+all_events = []
+
+for item in results:
+
+    for event in item["events"]:
+
+        if event["date"] >= date.today():
+
+            all_events.append({
+                "ticker": item["ticker"],
+                **event
+            })
+
+all_events.sort(
+    key=lambda x: (
+        x["date"],
+        x["priority"]
     )
+)
 
-elif action == "SELL":
+if all_events:
 
-    st.error(
-        f"🔴 **{ticker} — SELL** | Score: {score}\n\n"
-        f"{reason}"
-    )
+    for event in all_events[:7]:
+
+        days = (
+            event["date"]
+            - date.today()
+        ).days
+
+        if days == 0:
+            timing = "TODAY"
+
+        elif days == 1:
+            timing = "TOMORROW"
+
+        else:
+            timing = f"in {days} days"
+
+        st.write(
+            f"**{event['date'].strftime('%d %b %Y')}** "
+            f"— {event['ticker']} — "
+            f"{event['type']} "
+            f"({timing})"
+        )
 
 else:
 
-    st.info(
-        f"**{ticker} — {action}** | Score: {score}\n\n"
-        f"{reason}"
+    st.write(
+        "No upcoming key dates found."
     )
-```
+
 
 # =========================================================
-
-# STOCK ANALYSIS
-
+# OVERALL NEWS
 # =========================================================
 
-st.header("📈 Stock Analysis")
+positive = sum(
+    item["sentiments"].count("POSITIVE")
+    for item in results
+)
+
+negative = sum(
+    item["sentiments"].count("NEGATIVE")
+    for item in results
+)
+
+neutral = sum(
+    item["sentiments"].count("NEUTRAL")
+    for item in results
+)
+
+if positive > negative:
+    overall_sentiment = "POSITIVE"
+
+elif negative > positive:
+    overall_sentiment = "NEGATIVE"
+
+else:
+    overall_sentiment = "NEUTRAL"
+
+st.subheader("Overall News Sentiment")
+
+st.write(
+    f"{sentiment_colour(overall_sentiment)} "
+    f"**{overall_sentiment}**"
+)
+
+
+# =========================================================
+# DETAILED STOCK REPORTS
+# =========================================================
+
+st.header("Detailed Stock Reports")
 
 for item in results:
 
-```
-ticker = item.get("ticker", "N/A")
-name = item.get("name", ticker)
-sector = item.get("sector", "N/A")
+    with st.expander(
+        f"{item['ticker']} — {item['name']}"
+    ):
 
-score = item.get("score", 0)
-action = item.get("action", "N/A")
-reason = item.get(
-    "reason",
-    "No explanation available."
-)
+        info = item["info"]
 
-model = item.get("model", {})
-market_data = item.get("market_data", {})
-valuation_data = item.get("valuation_data", {})
-fundamentals = item.get("fundamentals", {})
-analyst_data = item.get("analyst_data", {})
-earnings = item.get("earnings", {})
-news = item.get("news", [])
-events = item.get("events", [])
-
-growth = model.get("growth")
-quality = model.get("quality")
-quality_score = model.get("quality_score")
-verdict = model.get("verdict")
-catalyst_strength = model.get(
-    "catalyst_strength"
-)
-
-risk = item.get("risk")
-
-# -----------------------------------------------------
-# STOCK HEADER
-# -----------------------------------------------------
-
-st.markdown("---")
-
-st.markdown(
-    f"## {ticker} — {name}"
-)
-
-if sector and sector != "N/A":
-
-    st.caption(
-        f"Sector: {sector}"
-    )
-
-# -----------------------------------------------------
-# ACTION
-# -----------------------------------------------------
-
-display_action(
-    action,
-    reason
-)
-
-# -----------------------------------------------------
-# TOP METRICS
-# -----------------------------------------------------
-
-metric1, metric2, metric3, metric4 = st.columns(4)
-
-current_price = (
-    market_data.get("current_price")
-    or market_data.get("price")
-    or item.get("price")
-)
-
-market_cap = (
-    market_data.get("market_cap")
-    or item.get("market_cap")
-)
-
-fifty_two_week_position = (
-    market_data.get(
-        "fifty_two_week_position"
-    )
-    or market_data.get(
-        "52_week_position"
-    )
-    or item.get("pos")
-)
-
-with metric1:
-
-    st.metric(
-        "Current Price",
-        format_number(current_price)
-    )
-
-with metric2:
-
-    st.metric(
-        "Model Score",
-        f"{score}/100"
-    )
-
-with metric3:
-
-    st.metric(
-        "Growth",
-        format_percent(growth)
-    )
-
-with metric4:
-
-    if fifty_two_week_position is not None:
-
-        st.metric(
-            "52-Week Position",
-            format_percent(
-                fifty_two_week_position
-            )
-            if float(
-                fifty_two_week_position
-            ) <= 1
-            else format_percent(
-                fifty_two_week_position
-            )
+        action, explanation = (
+            get_action_and_reason(item)
         )
 
-    else:
+        # -------------------------------------------------
+        # OVERALL
+        # -------------------------------------------------
 
-        st.metric(
-            "52-Week Position",
-            "N/A"
+        st.subheader("Overall")
+
+        st.write(
+            f"**Action:** "
+            f"{action_colour(action)} {action}"
         )
 
-# -----------------------------------------------------
-# DETAILED SECTIONS
-# -----------------------------------------------------
-
-with st.expander(
-    "📊 Market Data",
-    expanded=False
-):
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        st.metric(
-            "Current Price",
-            format_number(current_price)
+        st.write(
+            f"**Score:** {item['score']}/100"
         )
 
-    with col2:
-
-        st.metric(
-            "Market Cap",
-            format_large_number(market_cap)
+        st.write(
+            f"**Verdict:** "
+            f"{item['model']['verdict']}"
         )
 
-    with col3:
-
-        st.metric(
-            "52-Week Position",
-            format_percent(
-                fifty_two_week_position
-            )
+        st.write(
+            f"**Reason:** {explanation}"
         )
 
-    high_52 = (
-        market_data.get(
-            "fifty_two_week_high"
-        )
-        or market_data.get(
-            "52_week_high"
-        )
-    )
+        # -------------------------------------------------
+        # MARKET DATA
+        # -------------------------------------------------
 
-    low_52 = (
-        market_data.get(
-            "fifty_two_week_low"
+        st.subheader("Market Data")
+
+        current_price = info.get(
+            "currentPrice"
         )
-        or market_data.get(
-            "52_week_low"
+
+        previous_close = info.get(
+            "previousClose"
         )
-    )
 
-    if high_52 is not None or low_52 is not None:
+        market_cap = info.get(
+            "marketCap"
+        )
 
-        col1, col2 = st.columns(2)
+        fifty_two_high = info.get(
+            "fiftyTwoWeekHigh"
+        )
 
-        with col1:
+        fifty_two_low = info.get(
+            "fiftyTwoWeekLow"
+        )
+
+        if current_price is not None:
 
             st.write(
-                f"**52-Week High:** "
-                f"{format_number(high_52)}"
+                f"**Current Price:** {current_price:.2f}"
             )
 
-        with col2:
+        if previous_close is not None:
+
+            st.write(
+                f"**Previous Close:** {previous_close:.2f}"
+            )
+
+        if market_cap is not None:
+
+            st.write(
+                f"**Market Cap:** {market_cap:,.0f}"
+            )
+
+        if (
+            current_price is not None
+            and fifty_two_high is not None
+            and fifty_two_low is not None
+            and fifty_two_high != fifty_two_low
+        ):
+
+            position = (
+                (
+                    current_price
+                    - fifty_two_low
+                )
+                /
+                (
+                    fifty_two_high
+                    - fifty_two_low
+                )
+                * 100
+            )
+
+            st.write(
+                f"**52-Week Position:** "
+                f"{position:.1f}%"
+            )
+
+            st.progress(
+                max(
+                    0,
+                    min(
+                        100,
+                        position
+                    )
+                ) / 100
+            )
+
+        if fifty_two_low is not None:
 
             st.write(
                 f"**52-Week Low:** "
-                f"{format_number(low_52)}"
+                f"{fifty_two_low:.2f}"
             )
 
-    beta = (
-        market_data.get("beta")
-        or item.get("beta")
-    )
+        if fifty_two_high is not None:
 
-    if beta is not None:
+            st.write(
+                f"**52-Week High:** "
+                f"{fifty_two_high:.2f}"
+            )
 
-        st.write(
-            f"**Beta:** {format_number(beta)}"
-        )
+        # -------------------------------------------------
+        # FUNDAMENTALS
+        # -------------------------------------------------
 
-# -----------------------------------------------------
-# BUSINESS QUALITY / FUNDAMENTALS
-# -----------------------------------------------------
-
-with st.expander(
-    "🏢 Business & Fundamentals",
-    expanded=False
-):
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
+        st.subheader("Fundamentals")
 
         st.write(
             f"**Business Quality:** "
-            f"{quality or 'N/A'}"
+            f"{item['model']['quality']}"
         )
-
-        if quality_score is not None:
-
-            st.write(
-                f"**Quality Score:** "
-                f"{quality_score}"
-            )
-
-    with col2:
 
         st.write(
-            f"**Growth:** "
-            f"{format_percent(growth)}"
+            f"**Revenue/Earnings Growth:** "
+            f"{item['model']['growth']:.1f}%"
         )
 
-    with col3:
+        roe = info.get(
+            "returnOnEquity"
+        )
 
-        if fundamentals:
+        profit_margin = info.get(
+            "profitMargins"
+        )
 
-            for key, value in fundamentals.items():
+        operating_margin = info.get(
+            "operatingMargins"
+        )
 
-                label = (
-                    str(key)
-                    .replace("_", " ")
-                    .title()
+        debt_to_equity = info.get(
+            "debtToEquity"
+        )
+
+        if roe is not None:
+
+            st.write(
+                f"**ROE:** {roe * 100:.1f}%"
+            )
+
+        if profit_margin is not None:
+
+            st.write(
+                f"**Profit Margin:** "
+                f"{profit_margin * 100:.1f}%"
+            )
+
+        if operating_margin is not None:
+
+            st.write(
+                f"**Operating Margin:** "
+                f"{operating_margin * 100:.1f}%"
+            )
+
+        if debt_to_equity is not None:
+
+            st.write(
+                f"**Debt / Equity:** "
+                f"{debt_to_equity:.1f}"
+            )
+
+        # -------------------------------------------------
+        # VALUATION
+        # -------------------------------------------------
+
+        st.subheader("Valuation")
+
+        st.write(
+            f"**Assessment:** "
+            f"{valuation_colour(item['valuation'])} "
+            f"{item['valuation']}"
+        )
+
+        forward_pe = info.get(
+            "forwardPE"
+        )
+
+        trailing_pe = info.get(
+            "trailingPE"
+        )
+
+        peg = info.get(
+            "pegRatio"
+        )
+
+        if forward_pe is not None:
+
+            st.write(
+                f"**Forward P/E:** "
+                f"{forward_pe:.2f}"
+            )
+
+        if trailing_pe is not None:
+
+            st.write(
+                f"**Trailing P/E:** "
+                f"{trailing_pe:.2f}"
+            )
+
+        if peg is not None:
+
+            st.write(
+                f"**PEG Ratio:** "
+                f"{peg:.2f}"
+            )
+
+        # -------------------------------------------------
+        # ANALYSTS
+        # -------------------------------------------------
+
+        st.subheader(
+            "Analyst Consensus"
+        )
+
+        consensus = item[
+            "analyst_consensus"
+        ]
+
+        st.write(
+            f"**Consensus:** {consensus}"
+        )
+
+        analyst_count = info.get(
+            "numberOfAnalystOpinions"
+        )
+
+        target = info.get(
+            "targetMeanPrice"
+        )
+
+        high_target = info.get(
+            "targetHighPrice"
+        )
+
+        low_target = info.get(
+            "targetLowPrice"
+        )
+
+        if analyst_count is not None:
+
+            st.write(
+                f"**Analyst Count:** "
+                f"{analyst_count}"
+            )
+
+        if target is not None:
+
+            st.write(
+                f"**Average Target:** "
+                f"{target:.2f}"
+            )
+
+        if (
+            target is not None
+            and current_price
+        ):
+
+            upside = (
+                (
+                    target
+                    / current_price
+                    - 1
+                )
+                * 100
+            )
+
+            st.write(
+                f"**Target Upside:** "
+                f"{upside:.1f}%"
+            )
+
+        if high_target is not None:
+
+            st.write(
+                f"**High Target:** "
+                f"{high_target:.2f}"
+            )
+
+        if low_target is not None:
+
+            st.write(
+                f"**Low Target:** "
+                f"{low_target:.2f}"
+            )
+
+        # -------------------------------------------------
+        # EARNINGS
+        # -------------------------------------------------
+
+        st.subheader("Earnings")
+
+        earnings = info.get(
+            "earningsTimestamp"
+        )
+
+        if earnings:
+
+            try:
+
+                earnings_date = (
+                    datetime.fromtimestamp(
+                        earnings
+                    ).date()
                 )
 
-                if isinstance(
-                    value,
-                    (int, float)
-                ):
+                st.write(
+                    f"**Next Earnings:** "
+                    f"{earnings_date.strftime('%d %b %Y')}"
+                )
 
-                    st.write(
-                        f"**{label}:** "
-                        f"{format_number(value)}"
-                    )
+            except Exception:
 
-                else:
-
-                    st.write(
-                        f"**{label}:** "
-                        f"{value}"
-                    )
+                st.write(
+                    "Earnings date unavailable."
+                )
 
         else:
 
             st.write(
-                "No additional fundamental "
-                "data available."
+                "Earnings date unavailable."
             )
 
-# -----------------------------------------------------
-# VALUATION
-# -----------------------------------------------------
+        # -------------------------------------------------
+        # RISK
+        # -------------------------------------------------
 
-with st.expander(
-    "💰 Valuation",
-    expanded=False
-):
+        st.subheader("Risk")
 
-    valuation_label = item.get(
-        "valuation",
-        valuation_data.get(
-            "assessment",
-            "N/A"
-        )
-    )
-
-    if valuation_label == "ATTRACTIVE":
-
-        st.success(
-            f"Valuation: **{valuation_label}**"
+        st.write(
+            f"**Risk Assessment:** "
+            f"{risk_colour(item['risk'])} "
+            f"{item['risk']}"
         )
 
-    elif valuation_label == "EXPENSIVE":
-
-        st.error(
-            f"Valuation: **{valuation_label}**"
+        beta = info.get(
+            "beta"
         )
 
-    else:
-
-        st.warning(
-            f"Valuation: **{valuation_label}**"
-        )
-
-    if valuation_data:
-
-        for key, value in valuation_data.items():
-
-            label = (
-                str(key)
-                .replace("_", " ")
-                .title()
-            )
-
-            if isinstance(
-                value,
-                (int, float)
-            ):
-
-                st.write(
-                    f"**{label}:** "
-                    f"{format_number(value)}"
-                )
-
-            else:
-
-                st.write(
-                    f"**{label}:** "
-                    f"{value}"
-                )
-
-# -----------------------------------------------------
-# ANALYST CONSENSUS
-# -----------------------------------------------------
-
-with st.expander(
-    "🏦 Analyst Consensus",
-    expanded=False
-):
-
-    consensus = (
-        item.get("analyst_consensus")
-        or analyst_data.get("consensus")
-        or analyst_data.get("recommendation")
-    )
-
-    if consensus is None:
-
-        consensus = "N/A"
-
-    if consensus in (
-        "BUY",
-        "STRONG BUY"
-    ):
-
-        st.success(
-            f"Analyst Consensus: **{consensus}**"
-        )
-
-    elif consensus == "HOLD":
-
-        st.warning(
-            f"Analyst Consensus: **{consensus}**"
-        )
-
-    elif consensus in (
-        "SELL",
-        "STRONG SELL"
-    ):
-
-        st.error(
-            f"Analyst Consensus: **{consensus}**"
-        )
-
-    else:
-
-        st.info(
-            f"Analyst Consensus: **{consensus}**"
-        )
-
-    if analyst_data:
-
-        for key, value in analyst_data.items():
-
-            label = (
-                str(key)
-                .replace("_", " ")
-                .title()
-            )
-
-            if isinstance(
-                value,
-                (int, float)
-            ):
-
-                st.write(
-                    f"**{label}:** "
-                    f"{format_number(value)}"
-                )
-
-            else:
-
-                st.write(
-                    f"**{label}:** "
-                    f"{value}"
-                )
-
-# -----------------------------------------------------
-# EARNINGS
-# -----------------------------------------------------
-
-with st.expander(
-    "📅 Earnings",
-    expanded=False
-):
-
-    if earnings:
-
-        for key, value in earnings.items():
-
-            label = (
-                str(key)
-                .replace("_", " ")
-                .title()
-            )
+        if beta is not None:
 
             st.write(
-                f"**{label}:** {value}"
+                f"**Beta:** {beta:.2f}"
             )
 
-    else:
+        # -------------------------------------------------
+        # CATALYSTS
+        # -------------------------------------------------
+
+        st.subheader("Catalysts")
 
         st.write(
-            "No earnings information available."
+            f"**Catalyst Strength:** "
+            f"{item['model']['catalyst_strength']}"
         )
 
-# -----------------------------------------------------
-# RISK
-# -----------------------------------------------------
+        # -------------------------------------------------
+        # NEWS
+        # -------------------------------------------------
 
-with st.expander(
-    "⚠️ Risk",
-    expanded=False
-):
-
-    if risk == "VERY HIGH":
-
-        st.error(
-            f"Risk Assessment: **{risk}**"
+        st.subheader(
+            "Recent News"
         )
 
-    elif risk == "HIGH":
+        if not item["news"]:
 
-        st.error(
-            f"Risk Assessment: **{risk}**"
-        )
+            st.write(
+                "No recent news found."
+            )
 
-    elif risk == "MODERATE":
+        else:
 
-        st.warning(
-            f"Risk Assessment: **{risk}**"
-        )
-
-    else:
-
-        st.success(
-            f"Risk Assessment: **{risk or 'N/A'}**"
-        )
-
-# -----------------------------------------------------
-# CATALYSTS
-# -----------------------------------------------------
-
-with st.expander(
-    "🚀 Catalysts",
-    expanded=False
-):
-
-    if catalyst_strength == "STRONG":
-
-        st.success(
-            f"Catalyst Strength: "
-            f"**{catalyst_strength}**"
-        )
-
-    elif catalyst_strength == "MODERATE":
-
-        st.warning(
-            f"Catalyst Strength: "
-            f"**{catalyst_strength}**"
-        )
-
-    else:
-
-        st.info(
-            f"Catalyst Strength: "
-            f"**{catalyst_strength or 'N/A'}**"
-        )
-
-# -----------------------------------------------------
-# NEWS
-# -----------------------------------------------------
-
-with st.expander(
-    "📰 Recent News",
-    expanded=False
-):
-
-    if news:
-
-        for index, article in enumerate(
-            news,
-            start=1
-        ):
-
-            if isinstance(
-                article,
-                dict
+            for index, news in enumerate(
+                item["news"],
+                start=1
             ):
-
-                title = article.get(
-                    "title",
-                    "No title"
-                )
-
-                summary = article.get(
-                    "summary",
-                    ""
-                )
-
-                sentiment = article.get(
-                    "sentiment",
-                    "NEUTRAL"
-                )
 
                 st.markdown(
-                    f"**{index}. {title}**"
+                    f"**{index}. "
+                    f"{news['title']}**"
                 )
-
-                if summary:
-
-                    st.write(
-                        summary
-                    )
-
-                st.caption(
-                    f"Sentiment: {sentiment}"
-                )
-
-            elif isinstance(
-                article,
-                (list, tuple)
-            ):
-
-                if len(article) >= 1:
-
-                    st.markdown(
-                        f"**{index}. "
-                        f"{article[0]}**"
-                    )
-
-                if len(article) >= 2:
-
-                    st.write(
-                        article[1]
-                    )
-
-                if len(article) >= 3:
-
-                    st.caption(
-                        f"Sentiment: "
-                        f"{article[2]}"
-                    )
-
-            else:
 
                 st.write(
-                    str(article)
+                    f"{sentiment_colour(news['sentiment'])} "
+                    f"{news['sentiment']}"
                 )
 
-    else:
+                st.write(
+                    f"**Summary:** "
+                    f"{news['summary']}"
+                )
 
         st.write(
-            "No recent news available."
+            f"**Overall News Sentiment:** "
+            f"{sentiment_colour(item['overall_news_sentiment'])} "
+            f"{item['overall_news_sentiment']}"
         )
 
-# -----------------------------------------------------
-# KEY DATES
-# -----------------------------------------------------
+        # -------------------------------------------------
+        # KEY DATES
+        # -------------------------------------------------
 
-with st.expander(
-    "📆 Key Dates",
-    expanded=False
-):
+        st.subheader(
+            "Key Next Dates"
+        )
 
-    if events:
+        future_events = [
+            event
+            for event in item["events"]
+            if event["date"] >= date.today()
+        ]
 
-        for event in events:
+        future_events.sort(
+            key=lambda x: (
+                x["date"],
+                x["priority"]
+            )
+        )
 
-            if isinstance(
-                event,
-                dict
-            ):
+        if future_events:
 
-                event_type = event.get(
-                    "type",
-                    "EVENT"
-                )
+            for event in future_events:
 
-                event_date = event.get(
-                    "date",
-                    "N/A"
-                )
+                days = (
+                    event["date"]
+                    - date.today()
+                ).days
 
-                st.write(
-                    f"**{event_type}:** "
-                    f"{event_date}"
-                )
+                if days == 0:
+                    timing = "TODAY"
 
-            elif isinstance(
-                event,
-                (list, tuple)
-            ):
-
-                if len(event) >= 2:
-
-                    st.write(
-                        f"**{event[0]}:** "
-                        f"{event[1]}"
-                    )
+                elif days == 1:
+                    timing = "TOMORROW"
 
                 else:
-
-                    st.write(
-                        str(event)
-                    )
-
-            else:
+                    timing = f"in {days} days"
 
                 st.write(
-                    str(event)
+                    f"**{event['date'].strftime('%d %b %Y')}** "
+                    f"— {event['type']} "
+                    f"({timing})"
                 )
 
-    else:
+        else:
 
-        st.write(
-            "No upcoming key dates found."
-        )
-```
+            st.write(
+                "No upcoming dates found."
+            )
+
 
 # =========================================================
-
 # FOOTER
-
 # =========================================================
 
 st.divider()
 
 st.caption(
-"Investment Analyst Dashboard • "
-"Data supplied by market-data sources • "
-"For research purposes only"
+    f"Companies analysed: {len(results)}"
+)
+
+st.caption(
+    "Data and analysis are for research purposes only."
 )
